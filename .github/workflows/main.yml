@@ -31,11 +31,11 @@ jobs:
       - name: Run Python Script
         run: python main.py
 
-      # জেনারেট হওয়া ফাইলটি গিটহব রিপোজটরিতে সেভ (Commit & Push) করার জন্য
-      - name: Commit and push generated HTML
+      # জেনারেট হওয়া HTML এবং Status ফাইল গিটহব রিপোজটরিতে সেভ (Commit & Push) করার জন্য
+      - name: Commit and push generated files
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-          git add index.html
-          git commit -m "Auto-generated scraped HTML [skip ci]" || echo "No changes to commit"
+          git add index.html status.txt
+          git commit -m "Auto-generated scraped HTML and status [skip ci]" || echo "No changes to commit"
           git push
