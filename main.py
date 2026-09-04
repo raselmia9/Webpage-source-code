@@ -4,6 +4,9 @@ from playwright.async_api import async_playwright
 async def scrape_webpage():
     target_url = "https://www.fancode.com/bd/live-now/all-sports"
     output_file = "index.html"
+    status_file = "status.txt"
+    
+    status_messages = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -34,26 +37,34 @@ async def scrape_webpage():
         
         page = await context.new_page()
         
-        print(f"Opening URL as a mobile user from Bangladesh: {target_url}")
+        msg1 = f"🟡 Opening URL as a mobile user from Bangladesh: {target_url}"
+        print(msg1)
+        status_messages.append(msg1)
         
         # পেজে যাওয়া
         await page.goto(target_url, wait_until="networkidle")
         
-        print("Waiting for content (No Matches message or Match cards) to load completely...")
+        msg2 = "🟡 Waiting for content (No Matches message or Match cards) to load completely..."
+        print(msg2)
+        status_messages.append(msg2)
         
-        # স্মার্ট ওয়েটিং লজিক: 
-        # ১. হয় "No Matches Live At The Moment" লেখাটি আসবে 
-        # অথবা ২. লাইভ ম্যাচের কোনো কার্ড/কন্টেইনার আসবে (যদি খেলা থাকে)
+        # স্মার্ট ওয়েটিং লজিক
         try:
             await page.wait_for_selector("text=No Matches Live At The Moment", timeout=15000)
-            print("Detected: 'No Matches Live At The Moment' message successfully loaded!")
+            msg3 = "🔴 Detected: 'No Matches Live At The Moment' message successfully loaded!"
+            print(msg3)
+            status_messages.append(msg3)
         except Exception:
             try:
                 # যদি লাইভ ম্যাচ থাকে তবে তার কমন কন্টেইনার বা কার্ডের জন্য ট্রাই করবে
                 await page.wait_for_selector(".match-card, [class*='match'], [class*='card']", timeout=5000)
-                print("Detected: Live match cards successfully loaded!")
+                msg3 = "🟢 Detected: Live match cards successfully loaded!"
+                print(msg3)
+                status_messages.append(msg3)
             except Exception:
-                print("Timeout reached for specific elements, proceeding with current DOM state.")
+                msg3 = "🟡 Timeout reached for specific elements, proceeding with current DOM state."
+                print(msg3)
+                status_messages.append(msg3)
 
         # পেজ সম্পূর্ণ স্টেবল হওয়ার জন্য অতিরিক্ত ১ সেকেন্ড অপেক্ষা
         await asyncio.sleep(1)
@@ -65,8 +76,16 @@ async def scrape_webpage():
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(html_content)
             
-        print(f"Successfully saved fully-rendered HTML to {output_file}")
+        msg4 = f"🟢 Successfully saved fully-rendered HTML to {output_file}"
+        print(msg4)
+        status_messages.append(msg4)
+        
         await browser.close()
+        
+        # স্ট্যাটাস ফাইল সেভ করা (কোনো তারিখ বা সময় ছাড়াই)
+        with open(status_file, "w", encoding="utf-8") as sf:
+            sf.write("\n".join(status_messages))
+        print(f"🟢 Status successfully saved to {status_file}")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
