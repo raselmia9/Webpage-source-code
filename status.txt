@@ -1,3 +1,4 @@
-🟢 Success (Multi-Res): - - Dehradun T20 League 2026 - - Rishikesh Dragons - - Doiwala Kings
-🟢 Success (Multi-Res): - - Oman D50 2026 - - Muscat Thunders - - IAS Invincibles
-🟢 Success (Multi-Res): - - EFL Championship 2026-27 - - Preston North End F.C. - - Blackburn Rovers F.C.
+🟡 Fallback Used: - - Dehradun T20 League 2026 - - Rishikesh Dragons - - Doiwala Kings
+🟡 Fallback Used: - - Oman D50 2026 - - Muscat Thunders - - IAS Invincibles
+🟡 Fallback Used: - - EFL Championship 2026-27 - - Preston North End F.C. - - Blackburn Rovers F.C.
+🟡 Fallback Used: - - F2 MONZA 2026 - - Sprint Race - - Monza
