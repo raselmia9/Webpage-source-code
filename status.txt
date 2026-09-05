@@ -1,4 +1,5 @@
 🟢 Fresh Device Profile Loaded Successfully
-🟢 Status: Live Matches Are Active. Extracting precise match links and details...
-🟡 No valid match cards found with direct match links.
+🟢 Status: Live Matches Are Active. Extracting precise match links and team titles...
+🟢 Added valid watch link: Dehradun T20 League 2026 - Rishikesh Dragons [Cricket]
+🟢 Added valid watch link: Porsche Mobil 1 Supercup 2026 - Qualifying Session [Motorsports]
 🟢 Successfully generated and saved playlist.m3u
