@@ -1,6 +1,5 @@
 import asyncio
 import random
-os_import = __import__('os')
 import re
 from playwright.async_api import async_playwright
 
@@ -9,9 +8,6 @@ async def scrape_webpage():
     playlist_file = "playlist.m3u"
     status_file = "status.txt"
     index_file = "Index.html"
-    row_link_dir = "Row_Link"
-    
-    os_import.makedirs(row_link_dir, exist_ok=True)
     
     status_messages = []
     m3u_output = ["#EXTM3U"]
@@ -41,7 +37,7 @@ async def scrape_webpage():
     ]
 
     async with async_playwright() as p:
-        # ১. প্রথমে শুধু ম্যাচের লিস্ট পাওয়ার জন্য একটি ব্রাউজার ওপেন করা
+        # ১. প্রথমে মূল পেজ থেকে ম্যাচগুলোর লিস্ট সংগ্রহ করা
         temp_browser = await p.chromium.launch(headless=True)
         temp_context = await temp_browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -81,17 +77,12 @@ async def scrape_webpage():
             print("🟡 No matches found.")
             status_messages.append("🔴 No matches found on main page.")
         else:
-            # ২. প্রতিটি ম্যাচের জন্য সম্পূর্ণ আলাদা এবং স্বাধীন নতুন ব্রাউজার ইন্সট্যান্স লঞ্চ করা
+            # ২. প্রতিটি ম্যাচের জন্য সম্পূর্ণ আলাদা এবং স্বাধীন নতুন ব্রাউজার ইন্সট্যান্স লঞ্চ করা (ট্রায়াল বাইপাস করতে)
             for match in matches:
                 m_title = match['title']
                 m_url = match['href']
                 print(f"🟡 Processing with BRAND NEW Browser: {m_title}")
                 
-                safe_title = re.sub(r'[\\/*?:"<>|]', "", m_title).strip()
-                if not safe_title:
-                    safe_title = "fancode_match"
-                
-                # প্রতিবার একদম জিরো থেকে নতুন ব্রাউজার তৈরি
                 match_browser = await p.chromium.launch(headless=True)
                 unique_device = random.choice(device_profiles)
                 
@@ -121,32 +112,21 @@ async def scrape_webpage():
                     print(f"🟡 Match page error: {str(e)}")
                 
                 m3u8_link = next((l for l in captured_links if "master" in l or "hls" in l), captured_links[0] if captured_links else None)
-                final_stream_url = m3u8_link if m3u8_link else m_url
                 
-                # Row_Link ফোল্ডারে ফাইল সেভ
-                match_file_path = os_import.path.join(row_link_dir, f"{safe_title}.m3u")
-                match_m3u_content = f"""#EXTM3U
-#EXTINF:-1,{m_title}
-{final_stream_url}"""
-                with open(match_file_path, "w", encoding="utf-8") as mf:
-                    mf.write(match_m3u_content)
-
-                # মূল playlist.m3u ডেটা
-                m3u_output.append(f'#EXTINF:-1,{m_title}')
-                m3u_output.append(final_stream_url)
-                
-                # Index.html লিস্ট
-                html_match_list.append(f"<li><b>{m_title}</b>: <a href='{final_stream_url}' target='_blank'>Stream Link</a> | <a href='Row_Link/{safe_title}.m3u' target='_blank'>Download .m3u</a></li>")
-                
+                # যদি মাস্টার লিংক পাওয়া যায় তবেই প্লেলিস্টে যুক্ত হবে
                 if m3u8_link:
+                    print(f"🟢 Captured Master Link: {m3u8_link}")
+                    m3u_output.append(f'#EXTINF:-1,{m_title}')
+                    m3u_output.append(m3u8_link)
+                    html_match_list.append(f"<li><b>{m_title}</b>: <a href='{m3u8_link}' target='_blank'>Direct Stream Link</a></li>")
                     status_messages.append(f"🟢 Success: {m_title}")
                 else:
-                    status_messages.append(f"🟡 Fallback (Trial Blocked): {m_title}")
+                    print(f"🟡 Master link not found for: {m_title}")
+                    status_messages.append(f"🟡 Failed (Trial Blocked): {m_title}")
                 
-                # ম্যাচ শেষ হওয়া মাত্র পুরো ব্রাউজার ডিস্ট্রয় করা
                 await match_browser.close()
 
-        # ৩. ৪টি প্রধান ফাইল আপডেট করা
+        # ৩. মূল ফাইলগুলো আপডেট করা (playlist.m3u, status.txt, Index.html)
         with open(playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_output))
             
@@ -168,16 +148,16 @@ async def scrape_webpage():
 </head>
 <body>
     <h1>FanCode Live Matches</h1>
-    <p>Auto-generated live stream playlists with independent fresh browser instances.</p>
+    <p>Direct master .m3u8 streaming links generated automatically.</p>
     <ul>
-        {"".join(html_match_list) if html_match_list else "<li>No active matches found right now.</li>"}
+        {"".join(html_match_list) if html_match_list else "<li>No active streams found right now.</li>"}
     </ul>
 </body>
 </html>"""
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 All 4 targets successfully generated with isolated browser instances!")
+        print("🟢 Playlist, Status, and Index.html successfully updated with direct M3U8 links!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
