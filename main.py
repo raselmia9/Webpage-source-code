@@ -41,7 +41,7 @@ async def scrape_webpage():
         print(msg1)
         status_messages.append(msg1)
         
-        # পেজে যাওয়া এবং নেটওয়ার্ক আইডিলে রাখা
+        # পেজে যাওয়া
         try:
             await page.goto(target_url, wait_until="networkidle", timeout=30000)
         except Exception as e:
@@ -49,57 +49,61 @@ async def scrape_webpage():
             print(msg_err)
             status_messages.append(msg_err)
         
-        msg2 = "🟡 Waiting for 100% confirmation of Live Match cards or No Matches message..."
+        # পেজের ডাইনামিক কন্টেন্ট ও লাইভ ব্যাজ পুরোপুরি লোড হওয়ার জন্য অতিরিক্ত সময় ও স্ক্রোলিং
+        print("🟡 Waiting for live elements to render...")
+        await asyncio.sleep(3)
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight/2);")
+        await asyncio.sleep(2)
+        
+        msg2 = "🟡 Checking for live match cards across all categories..."
         print(msg2)
         status_messages.append(msg2)
         
         card_loaded_successfully = False
 
-        # ১00% নিশ্চিত হওয়ার জন্য লজিক
         try:
-            # প্রথমে দেখবো লাইভ ম্যাচের কোনো কার্ড বা এলিমেন্ট এসেছে কি না (১০ সেকেন্ড ম্যাক্সিমাম ওয়েট)
-            match_selector = ".match-card, [class*='match'], [class*='card']"
-            await page.wait_for_selector(match_selector, timeout=12000)
+            # ফ্যানকোডের লাইভ ব্যাজ (LIVE লেখাটি) অথবা কার্ডের কমন কন্টেইনার দিয়ে চেক করা
+            live_badge_selector = "text=LIVE"
+            await page.wait_for_selector(live_badge_selector, timeout=15000)
             
-            # অতিরিক্ত সুনিশ্চিত হওয়ার জন্য চেক করা যে কার্ডের ভেতর রিয়্যাল টেক্সট আছে কি না
-            cards_text = await page.locator(match_selector).all_inner_texts()
+            # পেজে থাকা সমস্ত লাইভ ইভেন্ট বা কার্ডের টেক্সটগুলো সংগ্রহ করা
+            # যেহেতু একাধিক ক্যাটাগরি থাকতে পারে (যেমন ক্রিকেট ও মোটোরস্পোর্টস)
+            all_cards_text = await page.locator("div, span, a").all_inner_texts()
             
-            valid_cards = [c.strip() for c in cards_text if c.strip()]
+            # যেগুলোতে লাইভ বা টুর্নামেন্টের নাম আছে সেগুলো ফিল্টার করা
+            found_live_items = [t.strip() for t in all_cards_text if "LIVE" in t or "League" in t or "Race" in t]
             
-            if valid_cards:
+            if found_live_items:
                 card_loaded_successfully = True
-                msg3 = "🟢 100% CONFIRMED: Live Match card loaded successfully!"
+                msg3 = "🟢 100% CONFIRMED: Live match cards/events loaded successfully!"
                 print(msg3)
                 status_messages.append(msg3)
                 
-                # কার্ডের ভেতরের তথ্যগুলো স্ট্যাটাসে যুক্ত করা যাতে গিটহবে আপডেট টের পাওয়া যায়
-                for idx, text in enumerate(valid_cards[:3], 1):
-                    clean_text = " | ".join(text.split('\n'))
-                    detail_msg = f"🟢 Card Details [{idx}]: {clean_text}"
-                    print(detail_msg)
-                    status_messages.append(detail_msg)
+                # পাওয়া কিছু লাইভ ইভেন্টের নাম স্ট্যাটাসে যুক্ত করা
+                for idx, item in enumerate(found_live_items[:4], 1):
+                    clean_item = " | ".join([line.strip() for line in item.split('\n') if line.strip()])
+                    if len(clean_item) > 3:
+                        detail_msg = f"🟢 Live Event [{idx}]: {clean_item[:60]}"
+                        print(detail_msg)
+                        status_messages.append(detail_msg)
             else:
-                raise Exception("Match elements found but text content is empty.")
+                raise Exception("Live badge found but text extraction failed.")
 
         except Exception:
-            # যদি লাইভ ম্যাচ কার্ড না পাওয়া যায়, তবে চেক করব "No Matches" লেখাটি আছে কি না
+            # যদি লাইভ ম্যাচ না থাকে তবে নো ম্যাচ চেক করা
             try:
-                await page.wait_for_selector("text=No Matches Live At The Moment", timeout=5000)
+                await page.wait_for_selector("text=No Matches Live At The Moment", timeout=3000)
                 msg3 = "🔴 100% CONFIRMED: 'No Matches Live At The Moment' message is present."
                 print(msg3)
                 status_messages.append(msg3)
             except Exception:
-                msg3 = "🟡 WARNING: Could not 100% verify match cards or no-match text. Page might still be loading."
+                msg3 = "🔴 WARNING: Live elements could not be verified properly."
                 print(msg3)
                 status_messages.append(msg3)
 
-        # পেজ সম্পূর্ণ স্টেবল হওয়ার জন্য অতিরিক্ত ২ সেকেন্ড অপেক্ষা
-        await asyncio.sleep(2)
-        
-        # রেন্ডার হওয়া সম্পূর্ণ এইচটিএমএল সোর্স কোড সংগ্রহ করা
+        # সম্পূর্ণ HTML সংগ্রহ করা
         html_content = await page.content()
         
-        # ফাইল সেভ করা
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(html_content)
             
@@ -109,10 +113,10 @@ async def scrape_webpage():
         
         await browser.close()
         
-        # স্ট্যাটাস ফাইল সেভ করা (প্রতিবার যাতে ফাইল আপডেট হয়ে গিটহব পরিবর্তন ট্র্যাক করে)
+        # স্ট্যাটাস ফাইল সেভ করা
         with open(status_file, "w", encoding="utf-8") as sf:
             sf.write("\n".join(status_messages))
-        print(f"🟢 Status successfully saved and forced update to {status_file}")
+        print(f"🟢 Status successfully saved to {status_file}")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
