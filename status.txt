@@ -1,4 +1,7 @@
 🟢 Fresh Device Profile Loaded Successfully
-🟢 Status: Live Matches Are Currently Active. Parsing match details...
-🟢 Added general live stream entry to M3U.
+🟢 Status: Live Matches Are Active. Extracting card details...
+🟢 Added to M3U: Live Now vs All (2) vs Cricket (1) [Motorsports]
+🟢 Added to M3U: Dehradun T20 League 2026 vs Rishikesh Dragons vs Doiwala Kings [Motorsports]
+🟢 Added to M3U: Dehradun T20 League 2026 vs Rishikesh Dragons vs Doiwala Kings [Cricket]
+🟢 Added to M3U: Porsche Mobil 1 Supercup 2026 vs Qualifying Session vs Monza [Motorsports]
 🟢 Successfully generated and saved playlist.m3u
