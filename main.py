@@ -80,7 +80,7 @@ async def scrape_webpage():
                 m_logo = match['logo']
                 print(f"🟡 Processing: {m_title}")
                 
-                # ফাইলের নামের জন্য নিরাপদ স্ট্রিং তৈরি করা (স্পেশাল ক্যারেক্টার রিমুভ)
+                # ফাইলের নামে কোনো স্পেস না রেখে সম্পূর্ণভাবে আন্ডারস্কোর (_) ব্যবহার করা
                 safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
                 safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
                 match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u"
@@ -115,7 +115,6 @@ async def scrape_webpage():
                 
                 base_stream_link = next((l for l in captured_links if "hls" in l or "p.m3u8" in l), captured_links[0] if captured_links else None)
                 
-                # সাব-ফাইলের কন্টেন্ট তৈরির তালিকা
                 sub_file_content = ["#EXTM3U"]
                 
                 if base_stream_link:
@@ -156,20 +155,18 @@ async def scrape_webpage():
                     sub_file_content.append(m_url)
                     status_messages.append(f"🟡 Fallback Used: {m_title}")
                 
-                # সাব-ফাইল (.m3u) Row_Link ফোল্ডারের ভেতরে সেভ করা
+                # Row_Link ফোল্ডারের ভেতরে ফাইল সেভ করা
                 with open(match_file_path, "w", encoding="utf-8") as sf:
                     sf.write("\n".join(sub_file_content))
                 
-                # মূল playlist.m3u ফাইলে Row_Link ফাইলের পাথ রেফারেন্স হিসেবে যোগ করা
+                # মূল playlist.m3u ফাইলে কোনো স্পেস ছাড়া পাথ যুক্ত করা
                 main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
                 main_m3u_output.append(f"{row_link_folder}/{match_file_name}")
                 
-                # ওয়েব প্রিভিউ বা ইনডেক্সের জন্য লিস্ট তৈরি
                 html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b> -> <a href='{row_link_folder}/{match_file_name}' target='_blank'>Row File</a></li>")
                 
                 await match_browser.close()
 
-        # মূল playlist.m3u ফাইল সেভ করা
         with open(main_playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(main_m3u_output))
             
