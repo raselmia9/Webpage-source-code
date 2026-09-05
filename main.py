@@ -2,7 +2,22 @@ import asyncio
 import os
 import random
 import re
+import aiohttp
 from playwright.async_api import async_playwright
+
+async def fetch_master_playlist(session, master_url):
+    """মাস্টার লিংক ফেচ করে ভেতরের অরিজিনাল মাল্টি-রেজুলেশন টেক্সট ডেটা রিটার্ন করবে"""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Referer": "https://www.fancode.com/"
+        }
+        async with session.get(master_url, headers=headers, timeout=10) as response:
+            if response.status == 200:
+                return await response.text()
+    except Exception as e:
+        print(f"🔴 Error fetching master playlist: {str(e)}")
+    return None
 
 async def scrape_webpage():
     target_url = "https://www.fancode.com/bd/live-now/all-sports"
@@ -84,77 +99,85 @@ async def scrape_webpage():
             print("🟡 No matches found.")
             status_messages.append("🔴 No matches found on main page.")
         else:
-            for index, match in enumerate(matches):
-                m_title = match['title']
-                m_url = match['href']
-                m_logo = match['logo']
-                print(f"🟡 Processing: {m_title}")
-                
-                match_browser = await p.chromium.launch(headless=True)
-                unique_device = random.choice(device_profiles)
-                
-                match_context = await match_browser.new_context(
-                    viewport=unique_device["viewport"],
-                    device_scale_factor=unique_device["device_scale_factor"],
-                    is_mobile=True,
-                    has_touch=True,
-                    user_agent=unique_device["user_agent"],
-                    locale="bn-BD",
-                    timezone_id="Asia/Dhaka",
-                    geolocation={"latitude": 23.8103, "longitude": 90.4125},
-                    permissions=["geolocation"]
-                )
-                
-                await match_context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
-                match_page = await match_context.new_page()
-                
-                captured_links = []
-                # সরাসরি নেটওয়ার্ক রিকোয়েস্ট থেকে .m3u8 লিংক ক্যাচ করা
-                match_page.on("request", lambda req: captured_links.append(req.url) if ".m3u8" in req.url else None)
-                
-                try:
-                    await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
-                    await asyncio.sleep(12)
-                except Exception as e:
-                    print(f"🟡 Match page error: {str(e)}")
-                
-                # যেকোনো একটি ভ্যালিড .m3u8 লিংক বেছে নেওয়া
-                valid_link = next((l for l in captured_links if "m3u8" in l), None)
-                
-                if not valid_link:
-                    print(f"🔴 Stream not available for: {m_title}. Skipping.")
-                    status_messages.append(f"🔴 Skipped (No Stream): {m_title}")
+            async with aiohttp.ClientSession() as session:
+                for index, match in enumerate(matches):
+                    m_title = match['title']
+                    m_url = match['href']
+                    m_logo = match['logo']
+                    print(f"🟡 Processing: {m_title}")
+                    
+                    match_browser = await p.chromium.launch(headless=True)
+                    unique_device = random.choice(device_profiles)
+                    
+                    match_context = await match_browser.new_context(
+                        viewport=unique_device["viewport"],
+                        device_scale_factor=unique_device["device_scale_factor"],
+                        is_mobile=True,
+                        has_touch=True,
+                        user_agent=unique_device["user_agent"],
+                        locale="bn-BD",
+                        timezone_id="Asia/Dhaka",
+                        geolocation={"latitude": 23.8103, "longitude": 90.4125},
+                        permissions=["geolocation"]
+                    )
+                    
+                    await match_context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
+                    match_page = await match_context.new_page()
+                    
+                    captured_links = []
+                    # ব্রাউজার থেকে সরাসরি মাস্টার index.m3u8 লিংকটি ক্যাপচার করা
+                    match_page.on("request", lambda req: captured_links.append(req.url) if "index.m3u8" in req.url else None)
+                    
+                    try:
+                        await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
+                        await asyncio.sleep(12)
+                    except Exception as e:
+                        print(f"🟡 Match page error: {str(e)}")
+                    
+                    # মাস্টার লিংক খুঁজে বের করা
+                    master_link = next((l for l in captured_links if "index.m3u8" in l), None)
+                    
+                    if not master_link:
+                        print(f"🔴 Master playlist link not found for: {m_title}. Skipping.")
+                        status_messages.append(f"🔴 Skipped (No Master Link): {m_title}")
+                        await match_browser.close()
+                        continue
+                    
+                    print(f"🟢 Captured Master Link: {master_link}")
+                    
+                    # মাস্টার লিংকে রিকোয়েস্ট করে ভেتরের অরিজিনাল মাল্টি-রেজুলেশন ডেটা নিয়ে আসা
+                    playlist_content_text = await fetch_master_playlist(session, master_link)
+                    
+                    if not playlist_content_text or ("#EXT-X-STREAM-INF" not in playlist_content_text and "#EXTINF" not in playlist_content_text):
+                        print(f"🔴 Failed to read multi-resolution content from master link for: {m_title}. Skipping.")
+                        status_messages.append(f"🔴 Skipped (Invalid Content): {m_title}")
+                        await match_browser.close()
+                        continue
+                    
+                    safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
+                    safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
+                    match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
+                    match_file_path = os.path.join(row_link_folder, match_file_name)
+                    
+                    # অরিজিনাল ফরম্যাট অনুযায়ী ফাইল সাজানো (লোগো, টাইটেল এবং ভেতরে থাকা রিয়েল মাল্টি-রেজুলেশন ডেটা সহ)
+                    sub_file_content = [
+                        "#EXTM3U",
+                        f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}',
+                        playlist_content_text.strip()
+                    ]
+                    
+                    with open(match_file_path, "w", encoding="utf-8") as sf:
+                        sf.write("\n".join(sub_file_content))
+                    
+                    status_messages.append(f"🟢 Success: {m_title}")
+                    
+                    full_raw_file_url = f"{base_raw_url}/{match_file_name}"
+                    main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
+                    main_m3u_output.append(full_raw_file_url)
+                    
+                    html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b> -> <a href='{row_link_folder}/{match_file_name}' target='_blank'>Row File (.m3u8)</a></li>")
+                    
                     await match_browser.close()
-                    continue
-                
-                print(f"🟢 Captured Link: {valid_link}")
-                
-                safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
-                safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
-                match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
-                match_file_path = os.path.join(row_link_folder, match_file_name)
-                
-                # স্ট্যান্ডার্ড মাল্টি-রেজোলিউশন প্লেলিস্ট স্ট্রাকচার যা সরাসরি ফ্যানকোর্ডের লিংকের সাথে কাজ করে
-                sub_file_content = [
-                    "#EXTM3U",
-                    f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}',
-                    "#EXT-X-VERSION:3",
-                    f'#EXT-X-STREAM-INF:BANDWIDTH=1789512,AVERAGE-BANDWIDTH=1789512,CODECS="avc1.64001f,mp4a.40.2",PROGRAM-ID=1,RESOLUTION=1280x720,FRAME-RATE=25.000',
-                    valid_link
-                ]
-                
-                status_messages.append(f"🟢 Success: {m_title}")
-                
-                with open(match_file_path, "w", encoding="utf-8") as sf:
-                    sf.write("\n".join(sub_file_content))
-                
-                full_raw_file_url = f"{base_raw_url}/{match_file_name}"
-                main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
-                main_m3u_output.append(full_raw_file_url)
-                
-                html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b> -> <a href='{row_link_folder}/{match_file_name}' target='_blank'>Row File (.m3u8)</a></li>")
-                
-                await match_browser.close()
 
         with open(main_playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(main_m3u_output))
@@ -186,7 +209,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed successfully!")
+        print("🟢 Process completed successfully with master multi-resolution data!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
