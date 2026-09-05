@@ -90,11 +90,6 @@ async def scrape_webpage():
                 m_logo = match['logo']
                 print(f"🟡 Processing: {m_title}")
                 
-                safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
-                safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
-                match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
-                match_file_path = os.path.join(row_link_folder, match_file_name)
-                
                 match_browser = await p.chromium.launch(headless=True)
                 unique_device = random.choice(device_profiles)
                 
@@ -114,62 +109,62 @@ async def scrape_webpage():
                 match_page = await match_context.new_page()
                 
                 captured_links = []
-                # মাস্টার (index.m3u8) বাদ দিয়ে সরাসরি রেজোলিউশন বা অন্য কোনো স্ট্রিম লিংক ধরার লজিক
+                # index.m3u8 বা মাস্টার ফাইল বাদ দিয়ে স্ট্রিম বা রেজোলিউশন লিংক ক্যাপচার করা
                 match_page.on("request", lambda req: captured_links.append(req.url) if ".m3u8" in req.url and "index.m3u8" not in req.url else None)
                 
                 try:
                     await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
-                    # পর্যাপ্ত সময় অপেক্ষা করা যাতে নির্দিষ্ট রেজোলিউশনের লিংক লোড হয়
                     await asyncio.sleep(12)
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                # যেকোনো একটি রেজোলিউশন লিংক বেছে নেওয়া (যেমন যেটাতে 240p বা অন্য কিছু আছে)
-                valid_res_link = next((l for l in captured_links if any(r in l for r in ["240p", "360p", "480p", "720p", "1080p"])), captured_links[0] if captured_links else None)
+                valid_res_link = next((l for l in captured_links if any(r in l for r in ["240p", "360p", "480p", "720p", "1080p"])), None)
                 
-                sub_file_content = ["#EXTM3U"]
+                # যদি কোনো ভ্যালিড বা আসল লিংক না পাওয়া যায়, তবে এই ম্যাচটি পুরোপুরি এড়িয়ে যাবো (Skip)
+                if not valid_res_link:
+                    print(f"🔴 Stream not available or invalid link for: {m_title}. Skipping this match.")
+                    status_messages.append(f"🔴 Skipped (No Stream): {m_title}")
+                    await match_browser.close()
+                    continue  # এই ম্যাচ বাদ দিয়ে পরের ম্যাচে চলে যাবে
                 
-                if valid_res_link:
-                    print(f"🟢 Captured Specific Resolution Link for: {m_title}")
-                    sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
-                    sub_file_content.append("#EXT-X-VERSION:3")
+                print(f"🟢 Captured Valid Link for: {m_title}")
+                
+                safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
+                safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
+                match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
+                match_file_path = os.path.join(row_link_folder, match_file_name)
+                
+                sub_file_content = ["#EXTM3U", f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}', "#EXT-X-VERSION:3"]
+                
+                base_link_cleaned = valid_res_link
+                detected_res = "240p"
+                for r_name in ["1080p", "720p", "540p", "480p", "360p", "240p"]:
+                    if r_name in base_link_cleaned:
+                        detected_res = r_name
+                        break
+                
+                base_link_cleaned = base_link_cleaned.replace(detected_res, "REPLACE_RES")
+                
+                resolutions = [
+                    {"res": "240p", "resolution_size": "426x240", "bandwidth": "446936", "codecs": "avc1.42e015,mp4a.40.2"},
+                    {"res": "360p", "resolution_size": "640x360", "bandwidth": "702376", "codecs": "avc1.42e01e,mp4a.40.2"},
+                    {"res": "480p", "resolution_size": "854x480", "bandwidth": "1023224", "codecs": "avc1.4d401e,mp4a.40.2"},
+                    {"res": "540p", "resolution_size": "960x540", "bandwidth": "1278664", "codecs": "avc1.4d401f,mp4a.40.2"},
+                    {"res": "720p", "resolution_size": "1280x720", "bandwidth": "1789512", "codecs": "avc1.64001f,mp4a.40.2"},
+                    {"res": "1080p", "resolution_size": "1920x1080", "bandwidth": "3322120", "codecs": "avc1.640028,mp4a.40.2"}
+                ]
+                
+                for item in resolutions:
+                    r = item["res"]
+                    sz = item["resolution_size"]
+                    bw = item["bandwidth"]
+                    cd = item["codecs"]
                     
-                    # লিংক থেকে বর্তমান রেজোলিউশনের নাম খুঁজে বের করে সেটিকে টেমপ্লেটে রূপান্তর করা
-                    base_link_cleaned = valid_res_link
-                    detected_res = "240p"
-                    for r_name in ["1080p", "720p", "540p", "480p", "360p", "240p"]:
-                        if r_name in base_link_cleaned:
-                            detected_res = r_name
-                            break
-                    
-                    base_link_cleaned = base_link_cleaned.replace(detected_res, "REPLACE_RES")
-                    
-                    resolutions = [
-                        {"res": "240p", "resolution_size": "426x240", "bandwidth": "446936", "codecs": "avc1.42e015,mp4a.40.2"},
-                        {"res": "360p", "resolution_size": "640x360", "bandwidth": "702376", "codecs": "avc1.42e01e,mp4a.40.2"},
-                        {"res": "480p", "resolution_size": "854x480", "bandwidth": "1023224", "codecs": "avc1.4d401e,mp4a.40.2"},
-                        {"res": "540p", "resolution_size": "960x540", "bandwidth": "1278664", "codecs": "avc1.4d401f,mp4a.40.2"},
-                        {"res": "720p", "resolution_size": "1280x720", "bandwidth": "1789512", "codecs": "avc1.64001f,mp4a.40.2"},
-                        {"res": "1080p", "resolution_size": "1920x1080", "bandwidth": "3322120", "codecs": "avc1.640028,mp4a.40.2"}
-                    ]
-                    
-                    for item in resolutions:
-                        r = item["res"]
-                        sz = item["resolution_size"]
-                        bw = item["bandwidth"]
-                        cd = item["codecs"]
-                        
-                        # প্রতিটি লাইনের জন্য আলাদা আলাদা রেজোলিউশনের লিংক তৈরি হবে
-                        link_with_res = base_link_cleaned.replace("REPLACE_RES", r)
-                        sub_file_content.append(f'#EXT-X-STREAM-INF:BANDWIDTH={bw},AVERAGE-BANDWIDTH={bw},CODECS="{cd}",PROGRAM-ID=1,RESOLUTION={sz},FRAME-RATE=25.000')
-                        sub_file_content.append(link_with_res)
-                    
-                    status_messages.append(f"🟢 Success (Distinct Resolutions): {m_title}")
-                else:
-                    print(f"🔴 Resolution link not found for: {m_title}")
-                    sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title} (Stream Unavailable)')
-                    sub_file_content.append("http://invalid-link-or-stream-not-started.m3u8")
-                    status_messages.append(f"🔴 Stream Not Found: {m_title}")
+                    link_with_res = base_link_cleaned.replace("REPLACE_RES", r)
+                    sub_file_content.append(f'#EXT-X-STREAM-INF:BANDWIDTH={bw},AVERAGE-BANDWIDTH={bw},CODECS="{cd}",PROGRAM-ID=1,RESOLUTION={sz},FRAME-RATE=25.000')
+                    sub_file_content.append(link_with_res)
+                
+                status_messages.append(f"🟢 Success: {m_title}")
                 
                 with open(match_file_path, "w", encoding="utf-8") as sf:
                     sf.write("\n".join(sub_file_content))
@@ -212,7 +207,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed with distinct resolution links!")
+        print("🟢 Process completed! Invalid/Offline streams successfully skipped.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
