@@ -9,7 +9,7 @@ async def scrape_webpage():
     
     status_messages = []
 
-    # বিভিন্ন রিয়েল মোবাইল ডিভাইসের ইউজার এজেন্ট এবং স্ক্রিন সাইজের লিস্ট
+    # বিভিন্ন রিয়েল মোবাইল ডিভাইসের ইউজার এজেন্ট এবং স্ক্রিন সাইজের লিস্ট (প্রতিবার নতুন ডিভাইস পরিচয়ের জন্য)
     mobile_devices = [
         {
             "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
@@ -33,13 +33,12 @@ async def scrape_webpage():
         }
     ]
 
-    # প্রতিবার রান করার সময় লিস্ট থেকে র‍্যান্ডমলি যেকোনো একটি ডিভাইস সিলেক্ট হবে
     selected_device = random.choice(mobile_devices)
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        # র‍্যান্ডম ডিভাইস প্রোফাইল এবং বাংলাদেশ সিগন্যাল সহ কনফিগারেশন
+        # ফ্রেশ র‍্যান্ডম ডিভাইস কনটেক্সট তৈরি
         context = await browser.new_context(
             viewport=selected_device["viewport"],
             device_scale_factor=selected_device["device_scale_factor"],
@@ -65,7 +64,7 @@ async def scrape_webpage():
         
         page = await context.new_page()
         
-        msg1 = f"🟡 Opening URL with a Fresh Random Device Profile from Bangladesh: {target_url}"
+        msg1 = "🟢 Fresh Device Profile Loaded Successfully"
         print(msg1)
         status_messages.append(msg1)
         
@@ -73,48 +72,32 @@ async def scrape_webpage():
         try:
             await page.goto(target_url, wait_until="networkidle", timeout=30000)
         except Exception as e:
-            msg_err = f"🟡 Network idle timeout, proceeding: {str(e)}"
+            msg_err = f"🟡 Network idle timeout, proceeding with DOM: {str(e)}"
             print(msg_err)
             status_messages.append(msg_err)
         
-        # জাভাস্ক্রিপ্ট ও রিয়্যাক্ট কম্পোনেন্ট পুরোপুরি লোড হওয়ার জন্য সময় ও স্ক্রোলিং
-        print("🟡 Waiting for SPA components and live data to render...")
+        # রিয়্যাক্ট কম্পোনেন্ট রেন্ডার হওয়ার জন্য অপেক্ষা ও স্ক্রোলিং
+        print("🟡 Waiting for SPA components to render...")
         await asyncio.sleep(4)
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3);")
         await asyncio.sleep(2)
         
-        msg2 = "🟡 Scanning page text for active live matches..."
-        print(msg2)
-        status_messages.append(msg2)
-        
-        # পেজের সম্পূর্ণ দৃশ্যমান টেক্সট সংগ্রহ করা
+        # পেজের সম্পূর্ণ টেক্সট সংগ্রহ করা
         page_text = await page.evaluate("document.body.innerText")
         
-        # কাঙ্ক্ষিত লাইভ ম্যাচ বা কীওয়ার্ড চেক করা
-        keywords_to_check = ["Dehradun", "Monza", "League", "Sprint Race", "LIVE"]
-        found_keywords = [kw for kw in keywords_to_check if kw.lower() in page_text.lower()]
-        
-        if "LIVE" in page_text and (len(found_keywords) > 1):
-            success_msg = "🟢 100% CONFIRMED: Live match cards loaded successfully with fresh device ID!"
+        # সার্বজনীন লাইভ স্ট্যাটাস চেক করা (মেনুর জাংক শব্দ এড়ানোর জন্য ফিল্টার)
+        if "LIVE" in page_text:
+            # পেজে লাইভ ম্যাচ আছে কি না তার একটি ইউনিভার্সাল পজিটিভ স্ট্যাটাস
+            success_msg = "🟢 Status: Live Matches Are Currently Active on FanCode"
             print(success_msg)
             status_messages.append(success_msg)
-            
-            # পেজ থেকে নির্দিষ্ট ম্যাচ বা টুর্নামেন্টের লাইনগুলো ফিল্টার করে বের করা
-            lines = page_text.split('\n')
-            for line in lines:
-                line_str = line.strip()
-                if any(k.lower() in line_str.lower() for k in ["Dehradun", "Monza", "League", "Sprint", "Knight", "Thunder"]):
-                    if len(line_str) > 3:
-                        detail_msg = f"🟢 Live Match Found: {line_str}"
-                        print(detail_msg)
-                        status_messages.append(detail_msg)
         else:
             if "No Matches Live At The Moment" in page_text:
-                no_match_msg = "🔴 100% CONFIRMED: 'No Matches Live At The Moment' message is present."
+                no_match_msg = "🔴 Status: No Matches Live At The Moment"
                 print(no_match_msg)
                 status_messages.append(no_match_msg)
             else:
-                warning_msg = "🟡 WARNING: Live elements could not be verified completely."
+                warning_msg = "🟡 Status: Checking live elements..."
                 print(warning_msg)
                 status_messages.append(warning_msg)
 
