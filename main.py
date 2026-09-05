@@ -25,11 +25,6 @@ async def scrape_webpage():
             "user_agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
             "viewport": {"width": 412, "height": 915},
             "device_scale_factor": 2.625
-        },
-        {
-            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Mobile/15E148 Safari/604.1",
-            "viewport": {"width": 375, "height": 812},
-            "device_scale_factor": 3
         }
     ]
 
@@ -75,86 +70,78 @@ async def scrape_webpage():
             print(msg_err)
             status_messages.append(msg_err)
         
-        # রিয়্যাক্ট কম্পোনেন্ট রেন্ডার হওয়ার জন্য অপেক্ষা ও স্ক্রোলিং
-        print("🟡 Waiting for SPA components and live data to render...")
+        # রিয়্যাক্ট কম্পোনেন্ট রেন্ডার হওয়ার জন্য সময় ও স্ক্রোলিং
+        print("🟡 Waiting for SPA components and live cards to render...")
         await asyncio.sleep(5)
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3);")
         await asyncio.sleep(2)
         
-        # পেজের সম্পূর্ণ টেক্সট সংগ্রহ করে আগে যাচাই করা যে লাইভ ম্যাচ আছে কি না
+        # পেজের সম্পূর্ণ টেক্সট সংগ্রহ করে লাইভ যাচাই করা
         page_text = await page.evaluate("document.body.innerText")
         
         m3u_lines = ["#EXTM3U"]
         
         if "LIVE" in page_text:
-            success_msg = "🟢 Status: Live Matches Are Currently Active. Parsing match details..."
+            success_msg = "🟢 Status: Live Matches Are Active. Extracting card details..."
             print(success_msg)
             status_messages.append(success_msg)
             
-            # ফ্যানকোডের কার্ডগুলো থেকে ডাইনামিকভাবে তথ্য বের করার জন্য জাভাস্ক্রিপ্ট ইভ্যালুয়েশন
-            # ফ্যানকোডের কার্ড স্ট্রাকচার অনুযায়ী টাইটেল, লোগো এবং ক্যাটাগরি এক্সট্রাক্ট করা
-            matches_data = await page.evaluate("""() => {
-                let items = [];
-                // ফ্যানকোডের লাইভ কার্ড বা কন্টেইনারগুলো সাধারণত যে ট্যাগ বা ক্লাসে থাকে
-                // আমরা পেজের কার্ড এলিমেন্টগুলো থেকে ডেটা সংগ্রহ করার চেষ্টা করছি
-                let cards = document.querySelectorAll('a[href*="/match/"], div');
+            # ফ্যানকোডের কার্ডগুলোর DOM থেকে সরাসরি টাইটেল, লোগো এবং লিংক এক্সট্রাক্ট করা
+            extracted_cards = await page.evaluate("""() => {
+                let cardsList = [];
+                // ফ্যানকোডের লাইভ ইভেন্ট কার্ডগুলো সাধারণত যে কন্টেইনার বা লিঙ্ক ট্যাগে থাকে
+                let elements = document.querySelectorAll('a[href*="/match/"], div');
                 
-                // বিকল্প হিসেবে টেক্সট লাইনগুলো বিশ্লেষণ করব যদি স্পেসিফিক সিলেক্টর না মিলে
-                return items;
+                elements.forEach(el => {
+                    let text = el.innerText ? el.innerText.trim() : "";
+                    // স্ক্রিনশটের মতো কার্ডগুলোতে টুর্নামেন্ট নাম এবং লাইভ ট্যাগ থাকে
+                    if (text.includes("LIVE") && text.length > 10 && text.length < 300) {
+                        let img = el.querySelector('img');
+                        let logo = img ? img.src : "https://images.fancode.com/icons/fancode-logo.png";
+                        
+                        if (!cardsList.some(c => c.text === text)) {
+                            cardsList.push({ text: text, logo: logo });
+                        }
+                    }
+                });
+                return cardsList;
             }""")
             
-            # যেহেতু ফ্যানকোডের লেআউট পরিবর্তনশীল, তাই ইউনিভার্সাল টেক্সট পার্সিং লজিক ব্যবহার করে M3U তৈরি করা হচ্ছে
-            lines = page_text.split('\n')
-            menu_or_junk_words = [
-                "premier destination", "sports fans", "highlights", "stream", 
-                "privacy policy", "terms of use", "download app", "all sports", 
-                "fancode shop", "fantasy research", "watch cricket"
-            ]
-            
-            valid_matches = []
-            for line in lines:
-                line_str = line.strip()
-                line_lower = line_str.lower()
-                
-                if any(junk in line_lower for junk in menu_or_junk_words):
-                    continue
-                
-                if (" vs " in line_lower or " v " in line_lower) and (10 < len(line_str) < 80):
-                    if line_str not in valid_matches:
-                        valid_matches.append(line_str)
-            
-            # M3U ফরম্যাটে ডেটা যোগ করা
-            if valid_matches:
-                for match in valid_matches:
-                    # ক্যাটাগরি বা গ্রুপ টাইটেল নির্ধারণ (ডিফল্ট FanCode Live)
-                    group_title = "FanCode Live"
-                    if "t20" in match.lower() or "cricket" in match.lower():
-                        group_title = "Cricket"
-                    elif "f3" in match.lower() or "race" in match.lower() or "motorsport" in match.lower():
+            # যদি সরাসরি DOM থেকে কার্ড পাওয়া যায়, সেগুলোকে প্রসেস করা
+            if extracted_cards:
+                for card in extracted_cards:
+                    # কার্ডের টেক্সট থেকে প্রথম লাইন বা টুর্নামেন্ট নাম আলাদা করা
+                    lines_in_card = [l.strip() for l in card['text'].split('\n') if l.strip() and l.strip() != "LIVE"]
+                    match_title = " vs ".join(lines_in_card[:3]) if lines_in_card else "FanCode Live Match"
+                    
+                    # ক্যাটাগরি নির্ধারণ
+                    group_title = "Cricket"
+                    card_lower = card['text'].lower()
+                    if "supercup" in card_lower or "f3" in card_lower or "race" in card_lower or "motorsport" in card_lower:
                         group_title = "Motorsports"
+                    elif "t20" in card_lower or "cricket" in card_lower:
+                        group_title = "Cricket"
                     
-                    logo_url = "https://images.fancode.com/icons/fancode-logo.png"
+                    # M3U ফরম্যাট যোগ করা
+                    m3u_lines.append(f'#EXTINF:-1 tvg-name="{match_title}" tvg-logo="{card["logo"]}" group-title="{group_title}",{match_title}')
+                    m3u_lines.append(target_url) # স্ট্রিম বা পেজ লিংক প্লেসহোল্ডার
                     
-                    # M3U এক্সটেন্ডেড ইনফো ও স্ট্রিম প্লেসহোল্ডার যোগ করা
-                    m3u_lines.append(f'#EXTINF:-1 tvg-name="{match}" tvg-logo="{logo_url}" group-title="{group_title}",{match}')
-                    m3u_lines.append(f'https://www.fancode.com/bd/live-now/all-sports') # প্লেসহোল্ডার লিংক
-                    
-                    status_messages.append(f"🟢 Added to M3U: {match} [{group_title}]")
+                    status_messages.append(f"🟢 Added to M3U: {match_title} [{group_title}]")
             else:
-                # যদি নির্দিষ্ট 'vs' লাইন না পাওয়া যায় কিন্তু লাইভ থাকে
-                m3u_lines.append(f'#EXTINF:-1 tvg-name="FanCode Live Stream" tvg-logo="https://images.fancode.com/icons/fancode-logo.png" group-title="Live Sports",FanCode Live Stream')
-                m3u_lines.append(f'https://www.fancode.com/bd/live-now/all-sports')
-                status_messages.append("🟢 Added general live stream entry to M3U.")
-                
+                # ফলব্যাক মেথড: টেক্সট লাইন স্ক্যান করে তৈরি করা
+                lines = page_text.split('\n')
+                for line in lines:
+                    line_str = line.strip()
+                    line_lower = line_str.lower()
+                    if ("league" in line_lower or "supercup" in line_lower or "vs" in line_lower) and len(line_str) > 8:
+                        group_title = "Motorsports" if "supercup" in line_lower else "Cricket"
+                        m3u_lines.append(f'#EXTINF:-1 tvg-name="{line_str}" tvg-logo="https://images.fancode.com/icons/fancode-logo.png" group-title="{group_title}",{line_str}')
+                        m3u_lines.append(target_url)
+                        status_messages.append(f"🟢 Added via fallback: {line_str}")
         else:
-            if "No Matches Live At The Moment" in page_text:
-                no_match_msg = "🔴 Status: No Matches Live At The Moment"
-                print(no_match_msg)
-                status_messages.append(no_match_msg)
-            else:
-                warning_msg = "🟡 Status: Checking live elements..."
-                print(warning_msg)
-                status_messages.append(warning_msg)
+            no_match_msg = "🔴 Status: No Matches Live At The Moment"
+            print(no_match_msg)
+            status_messages.append(no_match_msg)
 
         # M3U ফাইল সেভ করা
         with open(playlist_file, "w", encoding="utf-8") as f:
@@ -166,7 +153,6 @@ async def scrape_webpage():
         
         await browser.close()
         
-        # স্ট্যাটাস ফাইল সেভ করা
         with open(status_file, "w", encoding="utf-8") as sf:
             sf.write("\n".join(status_messages))
         print(f"🟢 Status successfully saved to {status_file}")
