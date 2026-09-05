@@ -50,8 +50,8 @@ async def scrape_webpage():
         
         # স্মার্ট ওয়েটিং লজিক ও দলগুলোর নাম এক্সট্রাক্ট করা
         try:
-            # প্রথমে চেক করব নো ম্যাচ লেখাটি আছে কি না
-            await page.wait_for_selector("text=No Matches Live At The Moment", timeout=5000)
+            # প্রথমে চেক করব নো ম্যাচ লেখাটি আছে কি না (খুব কম টাইমে বা শর্ট টাইমআউটে)
+            await page.wait_for_selector("text=No Matches Live At The Moment", timeout=3000)
             msg3 = "🔴 Detected: 'No Matches Live At The Moment' message successfully loaded!"
             print(msg3)
             status_messages.append(msg3)
@@ -63,21 +63,22 @@ async def scrape_webpage():
                 print(msg3)
                 status_messages.append(msg3)
                 
-                # পেজ থেকে লাইভ ম্যাচগুলোর দলের নাম এবং টুর্নামেন্ট খোঁজা
-                # ফ্যানকোডের কার্ড স্ট্রাকচার অনুযায়ী টেক্সটগুলো সংগ্রহ করা
-                match_info_elements = await page.locator("div, span").all_inner_texts()
+                # পেজ থেকে ম্যাচ কার্ডগুলোর ভেতরের দৃশ্যমান টেক্সটগুলো সংগ্রহ করা
+                # ফ্যানকোডের কার্ডে টুর্নামেন্ট ও দলগুলোর নাম থাকে
+                cards_text = await page.locator(".match-card, [class*='match']").all_inner_texts()
                 
-                # স্ক্রিনশট অনুযায়ী নির্দিষ্ট টিম নেম বা টুর্নামেন্ট ফিল্টার করার চেষ্টা
-                found_teams = []
-                for text in match_info_elements:
-                    # এখানে সাধারণ কিছু দল বা টুর্নামেন্টের ক্লু ধরা যেতে পারে, অথবা কার্ডের ভেতর থেকে টেক্সট এক্সট্রাক্ট করা
-                    if "T20" in text or "League" in text:
-                        pass # টুর্নামেন্ট নাম হতে পারে
-                
-                # সরাসরি পেজের ভেতরের ম্যাচ কার্ডের ভেতরের টেক্সটগুলো বের করে আনা
-                # পাইপ্লেটের মাধ্যমে দৃশ্যমান টিমগুলোর নাম প্রিন্ট করা
-                print("🟢 Live Match Found! Extracting team details...")
-                status_messages.append("🟢 Live Match Found! Checking details...")
+                if cards_text:
+                    for idx, card in enumerate(cards_text, 1):
+                        clean_card = " | ".join([line.strip() for line in card.split('\n') if line.strip()])
+                        if clean_card:
+                            team_msg = f"🟢 Match Details Found: {clean_card}"
+                            print(team_msg)
+                            status_messages.append(team_msg)
+                else:
+                    # যদি সরাসরি কার্ডের ক্লাস না ধরে পুরো বডি থেকে নির্দিষ্ট লেখা খুঁজতে হয়
+                    fallback_text = "🟢 Live match container is active on the page."
+                    print(fallback_text)
+                    status_messages.append(fallback_text)
                 
             except Exception:
                 msg3 = "🟡 Timeout reached for specific elements, proceeding with current DOM state."
