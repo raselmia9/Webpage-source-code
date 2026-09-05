@@ -11,13 +11,18 @@ async def scrape_webpage():
     status_file = "status.txt"
     index_file = "Index.html"
     
-    # গিটহাব র ইউআরএলের জন্য তথ্য
     github_username = "raselmia9"
     repo_name = "Webpage-source-code"
     branch_name = "main"
     base_raw_url = f"https://raw.githubusercontent.com/{github_username}/{repo_name}/refs/heads/{branch_name}/{row_link_folder}"
     
-    if not os.path.exists(row_link_folder):
+    # প্রতিবার রান করার সময় Row_Link ফোল্ডারটি সম্পূর্ণ পরিষ্কার করে নতুন করে তৈরি করা
+    if os.path.exists(row_link_folder):
+        for old_file in os.listdir(row_link_folder):
+            old_file_path = os.path.join(row_link_folder, old_file)
+            if os.path.isfile(old_file_path):
+                os.remove(old_file_path)
+    else:
         os.makedirs(row_link_folder)
         
     status_messages = []
@@ -109,34 +114,35 @@ async def scrape_webpage():
                 match_page = await match_context.new_page()
                 
                 captured_links = []
-                # মাস্টার লিংক এড়িয়ে সরাসরি ২৪০পি (240p.m3u8) বা নির্দিষ্ট রেজোলিউশন লিংক ক্যাপচার করার লজিক
-                match_page.on("request", lambda req: captured_links.append(req.url) if "240p.m3u8" in req.url else None)
+                # নেটওয়ার্ক রিকোয়েস্ট থেকে যেকোনো m3u8 বা স্ট্রিম লিংক ক্যাপচার করার লজিক
+                match_page.on("request", lambda req: captured_links.append(req.url) if ".m3u8" in req.url else None)
                 
                 try:
                     await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
-                    await asyncio.sleep(8)
+                    await asyncio.sleep(9)
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                # যদি সরাসরি 240p না পায়, তবে অন্য রেজোলিউশন (যেমন 360p) খুঁজতে পারে
-                if not captured_links:
-                    match_page.on("request", lambda req: captured_links.append(req.url) if "360p.m3u8" in req.url else None)
-                    await asyncio.sleep(3)
-
-                target_stream_link = next((l for l in captured_links if "240p.m3u8" in l or "360p.m3u8" in l), captured_links[0] if captured_links else None)
+                # যেকোনো একটি রেজোলিউশনের লিংক (যেমন 240p, 360p বা অন্য কিছু) অথবা প্রথম প্রাপ্ত m3u8 লিংকটি বেছে নেওয়া
+                valid_stream_link = next((l for l in captured_links if any(res in l for res in ["240p", "360p", "480p", "720p", "1080p"]) and "master" not in l), captured_links[0] if captured_links else None)
                 
                 sub_file_content = ["#EXTM3U"]
                 
-                if target_stream_link:
-                    print(f"🟢 Captured Valid Token Stream Link for: {m_title}")
+                if valid_stream_link:
+                    print(f"🟢 Captured Valid Stream Link for: {m_title}")
                     
                     sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
                     sub_file_content.append("#EXT-X-VERSION:3")
                     
-                    # টোকেন ও কুয়েরি স্ট্রিং অক্ষুণ্ণ রেখে শুধু রেজোলিউশন নাম (240p/360p) পরিবর্তন করে সব রেজোলিউশন তৈরি করা
-                    base_link_cleaned = target_stream_link
-                    for res_name in ["240p", "360p", "480p", "540p", "720p", "1080p"]:
-                        base_link_cleaned = base_link_cleaned.replace(f"{res_name}.m3u8", "REPLACE_RES.m3u8")
+                    # প্রাপ্ত লিংকের রেজোলিউশন অংশটি চিহ্নিত করে সেটিকে টেমপ্লেটে রূপান্তর করা
+                    base_link_cleaned = valid_stream_link
+                    detected_res = "240p" # ডিফল্ট ধরে নেওয়া
+                    for r_name in ["1080p", "720p", "540p", "480p", "360p", "240p"]:
+                        if f"{r_name}.m3u8" in base_link_cleaned:
+                            detected_res = r_name
+                            break
+                    
+                    base_link_cleaned = base_link_cleaned.replace(f"{detected_res}.m3u8", "REPLACE_RES.m3u8")
                     
                     resolutions = [
                         {"res": "240p", "bandwidth": "446936", "size": "426x240", "codecs": "avc1.42e015,mp4a.40.2"},
@@ -157,18 +163,17 @@ async def scrape_webpage():
                         sub_file_content.append(f'#EXT-X-STREAM-INF:BANDWIDTH={bw},AVERAGE-BANDWIDTH={bw},CODECS="{cd}",PROGRAM-ID=1,RESOLUTION={sz},FRAME-RATE=25.000')
                         sub_file_content.append(link_with_res)
                     
-                    status_messages.append(f"🟢 Success (Token-Preserved Multi-Res): {m_title}")
+                    status_messages.append(f"🟢 Success (Multi-Res Generated): {m_title}")
                 else:
-                    print(f"🟡 Fallback used for: {m_title}")
-                    sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title} (Fallback)')
-                    sub_file_content.append(m_url)
-                    status_messages.append(f"🟡 Fallback Used: {m_title}")
+                    # লিংক না পেলে আর মূল পেজ বসবে না, বরং একটি এর বা খালি স্ট্যাটাস দেখাবে যাতে ভুল লিংক প্লে না হয়
+                    print(f"🔴 No stream link found for: {m_title}")
+                    sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title} (Stream Unavailable)')
+                    sub_file_content.append("http://invalid-link-or-stream-not-started.m3u8")
+                    status_messages.append(f"🔴 Stream Not Found: {m_title}")
                 
-                # Row_Link ফোল্ডারের ভেতরে ফাইল সেভ করা
                 with open(match_file_path, "w", encoding="utf-8") as sf:
                     sf.write("\n".join(sub_file_content))
                 
-                # মূল playlist.m3u ফাইলে সম্পূর্ণ GitHub Raw URL যুক্ত করা
                 full_raw_file_url = f"{base_raw_url}/{match_file_name}"
                 main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
                 main_m3u_output.append(full_raw_file_url)
@@ -207,7 +212,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed! Token-preserved resolution replacement applied successfully.")
+        print("🟢 Process completed successfully!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
