@@ -1,2 +1,2 @@
-🔴 Skipped (Invalid Content): - - Oman D50 2026 - - Muscat Thunders - - IAS Invincibles
-🔴 Skipped (Invalid Content): - - EFL Championship 2026-27 - - Preston North End F.C. - - Blackburn Rovers F.C.
+🟢 Success: - - Oman D50 2026 - - Muscat Thunders - - IAS Invincibles
+🟢 Success: - - EFL Championship 2026-27 - - Preston North End F.C. - - Blackburn Rovers F.C.
