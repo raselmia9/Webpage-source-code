@@ -1,4 +1,5 @@
 import asyncio
+import random
 from playwright.async_api import async_playwright
 
 async def scrape_webpage():
@@ -8,16 +9,43 @@ async def scrape_webpage():
     
     status_messages = []
 
+    # বিভিন্ন রিয়েল মোবাইল ডিভাইসের ইউজার এজেন্ট এবং স্ক্রিন সাইজের লিস্ট
+    mobile_devices = [
+        {
+            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            "viewport": {"width": 390, "height": 844},
+            "device_scale_factor": 3
+        },
+        {
+            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
+            "viewport": {"width": 393, "height": 852},
+            "device_scale_factor": 3
+        },
+        {
+            "user_agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "viewport": {"width": 412, "height": 915},
+            "device_scale_factor": 2.625
+        },
+        {
+            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Mobile/15E148 Safari/604.1",
+            "viewport": {"width": 375, "height": 812},
+            "device_scale_factor": 3
+        }
+    ]
+
+    # প্রতিবার রান করার সময় লিস্ট থেকে র‍্যান্ডমলি যেকোনো একটি ডিভাইস সিলেক্ট হবে
+    selected_device = random.choice(mobile_devices)
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        # মোবাইল ডিভাইসের রিয়েল ফিল এবং বাংলাদেশ সিগন্যাল সহ কনফিগারেশন
+        # র‍্যান্ডম ডিভাইস প্রোফাইল এবং বাংলাদেশ সিগন্যাল সহ কনফিগারেশন
         context = await browser.new_context(
-            viewport={"width": 390, "height": 844},
-            device_scale_factor=3,
+            viewport=selected_device["viewport"],
+            device_scale_factor=selected_device["device_scale_factor"],
             is_mobile=True,
             has_touch=True,
-            user_agent="Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+            user_agent=selected_device["user_agent"],
             locale="bn-BD",
             timezone_id="Asia/Dhaka",
             geolocation={"latitude": 23.8103, "longitude": 90.4125},
@@ -37,7 +65,7 @@ async def scrape_webpage():
         
         page = await context.new_page()
         
-        msg1 = f"🟡 Opening URL as a mobile user from Bangladesh: {target_url}"
+        msg1 = f"🟡 Opening URL with a Fresh Random Device Profile from Bangladesh: {target_url}"
         print(msg1)
         status_messages.append(msg1)
         
@@ -62,12 +90,12 @@ async def scrape_webpage():
         # পেজের সম্পূর্ণ দৃশ্যমান টেক্সট সংগ্রহ করা
         page_text = await page.evaluate("document.body.innerText")
         
-        # কাঙ্ক্ষিত লাইভ ম্যাচ বা কীওয়ার্ড চেক করা (যেমন Dehradun, Monza, League, Race বা LIVE)
+        # কাঙ্ক্ষিত লাইভ ম্যাচ বা কীওয়ার্ড চেক করা
         keywords_to_check = ["Dehradun", "Monza", "League", "Sprint Race", "LIVE"]
         found_keywords = [kw for kw in keywords_to_check if kw.lower() in page_text.lower()]
         
         if "LIVE" in page_text and (len(found_keywords) > 1):
-            success_msg = "🟢 100% CONFIRMED: Live match cards loaded successfully!"
+            success_msg = "🟢 100% CONFIRMED: Live match cards loaded successfully with fresh device ID!"
             print(success_msg)
             status_messages.append(success_msg)
             
@@ -75,14 +103,12 @@ async def scrape_webpage():
             lines = page_text.split('\n')
             for line in lines:
                 line_str = line.strip()
-                # যে লাইনগুলোতে ম্যাচের নাম বা টুর্নামেন্টের ক্লু আছে সেগুলো স্ট্যাটাসে তুলব
                 if any(k.lower() in line_str.lower() for k in ["Dehradun", "Monza", "League", "Sprint", "Knight", "Thunder"]):
                     if len(line_str) > 3:
                         detail_msg = f"🟢 Live Match Found: {line_str}"
                         print(detail_msg)
                         status_messages.append(detail_msg)
         else:
-            # যদি লাইভ ম্যাচ না থাকে তবে নো ম্যাচ চেক করা
             if "No Matches Live At The Moment" in page_text:
                 no_match_msg = "🔴 100% CONFIRMED: 'No Matches Live At The Moment' message is present."
                 print(no_match_msg)
