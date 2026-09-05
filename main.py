@@ -11,6 +11,12 @@ async def scrape_webpage():
     status_file = "status.txt"
     index_file = "Index.html"
     
+    # আপনার গিটহাব ইউজারনেম এবং রিপোজিটরি নাম অনুযায়ী বেস র ইউআরএল
+    github_username = "raselmia9"
+    repo_name = "Webpage-source-code"
+    branch_name = "main"
+    base_raw_url = f"https://raw.githubusercontent.com/{github_username}/{repo_name}/refs/heads/{branch_name}/{row_link_folder}"
+    
     # Row_Link ফোল্ডার তৈরি করা (যদি না থাকে)
     if not os.path.exists(row_link_folder):
         os.makedirs(row_link_folder)
@@ -159,9 +165,10 @@ async def scrape_webpage():
                 with open(match_file_path, "w", encoding="utf-8") as sf:
                     sf.write("\n".join(sub_file_content))
                 
-                # মূল playlist.m3u ফাইলে কোনো স্পেস ছাড়া পাথ যুক্ত করা
+                # মূল playlist.m3u ফাইলে সম্পূর্ণ GitHub Raw URL যুক্ত করা
+                full_raw_file_url = f"{base_raw_url}/{match_file_name}"
                 main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
-                main_m3u_output.append(f"{row_link_folder}/{match_file_name}")
+                main_m3u_output.append(full_raw_file_url)
                 
                 html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b> -> <a href='{row_link_folder}/{match_file_name}' target='_blank'>Row File</a></li>")
                 
@@ -197,7 +204,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed! Row_Link files and main playlist generated successfully.")
+        print("🟢 Process completed! Full GitHub Raw URLs generated in playlist.m3u successfully.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
