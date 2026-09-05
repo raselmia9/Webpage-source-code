@@ -1,4 +1,4 @@
 🟡 Opening URL as a mobile user from Bangladesh: https://www.fancode.com/bd/live-now/all-sports
 🟡 Waiting for content (No Matches message or Match cards) to load completely...
-🔴 Detected: 'No Matches Live At The Moment' message successfully loaded!
+🟡 Timeout reached for specific elements, proceeding with current DOM state.
 🟢 Successfully saved fully-rendered HTML to index.html
