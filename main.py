@@ -109,8 +109,8 @@ async def scrape_webpage():
                 match_page = await match_context.new_page()
                 
                 captured_links = []
-                # মাস্টার (index.m3u8) বাদ দিয়ে রেজোলিউশন বা স্ট্রিম লিংক ক্যাচ করা
-                match_page.on("request", lambda req: captured_links.append(req.url) if ".m3u8" in req.url and "index.m3u8" not in req.url else None)
+                # পেজ থেকে যেকোনো .m3u8 লিংক পেলেই সেটা ক্যাচ করবে (স্কিপ করার কোনো চান্স নেই)
+                match_page.on("request", lambda req: captured_links.append(req.url) if ".m3u8" in req.url else None)
                 
                 try:
                     await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
@@ -118,16 +118,16 @@ async def scrape_webpage():
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                # ভ্যালিড রেজোলিউশন লিংক খুঁজে বের করা
-                valid_res_link = next((l for l in captured_links if any(r in l for r in ["240p", "360p", "480p", "720p", "1080p"])), None)
+                # যেকোনো একটি .m3u8 লিংক পেলেই সেটাকে লুফে নেব
+                valid_link = next((l for l in captured_links if "m3u8" in l), None)
                 
-                if not valid_res_link:
+                if not valid_link:
                     print(f"🔴 Stream not available for: {m_title}. Skipping.")
                     status_messages.append(f"🔴 Skipped (No Stream): {m_title}")
                     await match_browser.close()
                     continue
                 
-                print(f"🟢 Captured Valid Link for: {m_title}")
+                print(f"🟢 Captured Link for: {m_title}")
                 
                 safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
                 safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
@@ -136,14 +136,22 @@ async def scrape_webpage():
                 
                 sub_file_content = ["#EXTM3U", f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}', "#EXT-X-VERSION:3"]
                 
-                base_link_cleaned = valid_res_link
-                detected_res = "240p"
+                # লিংকটি পরিষ্কার করে সেটিতে রেজোলিউশন বসানোর ব্যবস্থা করা
+                base_link_cleaned = valid_link
+                detected_res = None
                 for r_name in ["1080p", "720p", "540p", "480p", "360p", "240p"]:
                     if r_name in base_link_cleaned:
                         detected_res = r_name
                         break
                 
-                base_link_cleaned = base_link_cleaned.replace(detected_res, "REPLACE_RES")
+                if detected_res:
+                    base_link_cleaned = base_link_cleaned.replace(detected_res, "REPLACE_RES")
+                else:
+                    # যদি লিংকে রেজোলিউশন না থাকে (যেমন index.m3u8), তবে index.m3u8 অংশটি টেমপ্লেট বানিয়ে নেব
+                    if "index.m3u8" in base_link_cleaned:
+                        base_link_cleaned = base_link_cleaned.replace("index.m3u8", "REPLACE_RES.m3u8")
+                    else:
+                        base_link_cleaned = base_link_cleaned + "/REPLACE_RES.m3u8"
                 
                 resolutions = [
                     {"res": "240p", "resolution_size": "426x240", "bandwidth": "446936", "codecs": "avc1.42e015,mp4a.40.2"},
@@ -207,7 +215,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed successfully!")
+        print("🟢 Process completed successfully without skipping valid matches!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
