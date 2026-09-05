@@ -134,12 +134,10 @@ async def scrape_webpage():
                 match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
                 match_file_path = os.path.join(row_link_folder, match_file_name)
                 
-                # Row ফোল্ডারের ফাইলের ভেতরে মাস্টার লিংক বসানো
+                # 🛑 এখানে মাঝখানের `#EXT-X-STREAM-INF` এবং জটিল লাইনগুলো বাদ দিয়ে একদম পরিষ্কার ফরম্যাট করা হলো
                 sub_file_content = [
                     "#EXTM3U",
                     f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}',
-                    "#EXT-X-VERSION:3",
-                    '#EXT-X-STREAM-INF:BANDWIDTH=1789512,AVERAGE-BANDWIDTH=1789512,CODECS="avc1.64001f,mp4a.40.2",PROGRAM-ID=1,RESOLUTION=1280x720,FRAME-RATE=25.000',
                     master_link
                 ]
                 
@@ -189,7 +187,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed successfully! All files and status updated.")
+        print("🟢 Process completed successfully without intermediate STREAM-INF tags!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
