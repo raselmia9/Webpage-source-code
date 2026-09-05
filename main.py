@@ -2,7 +2,6 @@ import asyncio
 import os
 import random
 import re
-import urllib.parse
 from playwright.async_api import async_playwright
 
 async def scrape_webpage():
@@ -109,65 +108,39 @@ async def scrape_webpage():
                 await match_context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
                 match_page = await match_context.new_page()
                 
-                captured_playlists = []
-                
-                # নেটওয়ার্ক রেসপন্স থেকে সরাসরি .m3u8 ফাইলের টেক্সট ডেটা ক্যাচ করার ফাংশন
-                async def handle_response(response):
-                    if "m3u8" in response.url:
-                        try:
-                            body = await response.text()
-                            if "#EXTM3U" in body or "#EXT-X-STREAM-INF" in body:
-                                captured_playlists.append({
-                                    "url": response.url,
-                                    "content": body
-                                })
-                        except Exception:
-                            pass
-
-                match_page.on("response", lambda resp: asyncio.create_task(handle_response(resp)))
+                captured_links = []
+                # সরাসরি নেটওয়ার্ক রিকোয়েস্ট থেকে .m3u8 লিংক ক্যাচ করা
+                match_page.on("request", lambda req: captured_links.append(req.url) if ".m3u8" in req.url else None)
                 
                 try:
                     await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
-                    # প্লেয়ার লোড হওয়ার জন্য পর্যাপ্ত সময় অপেক্ষা করা
                     await asyncio.sleep(12)
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                # মাস্টার প্লেলিস্ট বা যেকোনো ভ্যালিড প্লেলিস্ট খুঁজে বের করা
-                valid_playlist = next((p for p in captured_playlists if "#EXT-X-STREAM-INF" in p['content']), captured_playlists[0] if captured_playlists else None)
+                # যেকোনো একটি ভ্যালিড .m3u8 লিংক বেছে নেওয়া
+                valid_link = next((l for l in captured_links if "m3u8" in l), None)
                 
-                if not valid_playlist:
+                if not valid_link:
                     print(f"🔴 Stream not available for: {m_title}. Skipping.")
                     status_messages.append(f"🔴 Skipped (No Stream): {m_title}")
                     await match_browser.close()
                     continue
                 
-                print(f"🟢 Captured Playlist from Response: {valid_playlist['url']}")
+                print(f"🟢 Captured Link: {valid_link}")
                 
                 safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
                 safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
                 match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
                 match_file_path = os.path.join(row_link_folder, match_file_name)
                 
-                # ভেতরের ইউআরএলগুলোকে Absolute URL এ রূপান্তর করা (যাতে относительный বা রিলেটিভ পাথ ভেঙে না যায়)
-                playlist_url = valid_playlist['url']
-                raw_content = valid_playlist['content']
-                
-                processed_lines = []
-                for line in raw_content.splitlines():
-                    line = line.strip()
-                    if line and not line.startswith('#'):
-                        absolute_url = urllib.parse.urljoin(playlist_url, line)
-                        processed_lines.append(absolute_url)
-                    else:
-                        processed_lines.append(line)
-                
-                final_playlist_body = "\n".join(processed_lines)
-                
+                # স্ট্যান্ডার্ড মাল্টি-রেজোলিউশন প্লেলিস্ট স্ট্রাকচার যা সরাসরি ফ্যানকোর্ডের লিংকের সাথে কাজ করে
                 sub_file_content = [
                     "#EXTM3U",
                     f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}',
-                    final_playlist_body
+                    "#EXT-X-VERSION:3",
+                    f'#EXT-X-STREAM-INF:BANDWIDTH=1789512,AVERAGE-BANDWIDTH=1789512,CODECS="avc1.64001f,mp4a.40.2",PROGRAM-ID=1,RESOLUTION=1280x720,FRAME-RATE=25.000',
+                    valid_link
                 ]
                 
                 status_messages.append(f"🟢 Success: {m_title}")
@@ -213,7 +186,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed successfully with exact tokenized response content!")
+        print("🟢 Process completed successfully!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
