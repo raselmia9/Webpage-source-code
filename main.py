@@ -109,7 +109,6 @@ async def scrape_webpage():
                 match_page = await match_context.new_page()
                 
                 captured_links = []
-                # সরাসরি নেটওয়ার্ক রিকোয়েস্ট থেকে master index.m3u8 লিংকটি ক্যাচ করা
                 match_page.on("request", lambda req: captured_links.append(req.url) if "index.m3u8" in req.url else None)
                 
                 try:
@@ -118,7 +117,6 @@ async def scrape_webpage():
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                # মাস্টার লিংক খুঁজে বের করা
                 master_link = next((l for l in captured_links if "index.m3u8" in l), None)
                 
                 if not master_link:
@@ -134,7 +132,7 @@ async def scrape_webpage():
                 match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
                 match_file_path = os.path.join(row_link_folder, match_file_name)
                 
-                # 🛑 এখানে মাঝখানের `#EXT-X-STREAM-INF` এবং জটিল লাইনগুলো বাদ দিয়ে একদম পরিষ্কার ফরম্যাট করা হলো
+                # Row_Link ফোল্ডারের ফাইলের গঠন অপরিবর্তিত রাখা হলো
                 sub_file_content = [
                     "#EXTM3U",
                     f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}',
@@ -146,15 +144,15 @@ async def scrape_webpage():
                 
                 status_messages.append(f"🟢 Success: {m_title}")
                 
-                full_raw_file_url = f"{base_raw_url}/{match_file_name}"
+                # 🛑 পরিবর্তন: playlist.m3u ফাইলের জন্য গিটহাব র-লিংকের বদলে সরাসরি মাস্টার লিংক বসানো হলো
                 main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
-                main_m3u_output.append(full_raw_file_url)
+                main_m3u_output.append(master_link)
                 
                 html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b> -> <a href='{row_link_folder}/{match_file_name}' target='_blank'>Row File (.m3u8)</a></li>")
                 
                 await match_browser.close()
 
-        # playlist.m3u ফাইল তৈরি
+        # playlist.m3u ফাইল তৈরি (এখন সরাসরি মাস্টার লিংক থাকবে)
         with open(main_playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(main_m3u_output))
             
@@ -187,7 +185,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed successfully without intermediate STREAM-INF tags!")
+        print("🟢 Process completed successfully! playlist.m3u updated with direct master links.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
