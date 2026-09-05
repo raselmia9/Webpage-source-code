@@ -1,5 +1,0 @@
-#EXTM3U
-#EXTINF:-1 tvg-logo="https://images.fancode.com/skillup-uploads/cms-media/Formula2_old_Match_card_1787814548632.jpg?hash=eyJrZXkiOiJza2lsbHVwLXVwbG9hZHMvY21zLW1lZGlhL0Zvcm11bGEyX29sZF9NYXRjaF9jYXJkXzE3ODc4MTQ1NDg2MzIuanBnIiwiZWRpdHMiOnsicmVzaXplIjp7ImZpdCI6ImNvdmVyIiwicG9zaXRpb24iOiJ0b3AiLCJ3aWR0aCI6MzUyLCJoZWlnaHQiOjE4MH0sIndlYnAiOnsicXVhbGl0eSI6NjAsImxvc3NsZXNzIjpmYWxzZX19LCJvdXRwdXRGb3JtYXQiOiJ3ZWJwIn0=" group-title="FanCode",- - F2 MONZA 2026 - - Sprint Race - - Monza
-#EXT-X-VERSION:3
-#EXT-X-STREAM-INF:BANDWIDTH=1789512,AVERAGE-BANDWIDTH=1789512,CODECS="avc1.64001f,mp4a.40.2",PROGRAM-ID=1,RESOLUTION=1280x720,FRAME-RATE=25.000
-https://bd-mc-flive.fancode.com/mumbai/139648_english_hls_37aad0de7410198_1ta-di_h264/index.m3u8?hdnea=exp=1788613749~acl=/mumbai/139648_english_hls_37aad0de7410198_1ta-di_h264/*~id=20.51.198.198_139648_4553b8b4-1833-44~data=20.51.198.198_139648_free_175~hmac=e90ab93748c5ea7ac3a11d9eb0d9928a303a1db3a909e7ae92fd7a7f70c48924&deviceId=undefined&advertiserId=undefined&ft_type=c1
