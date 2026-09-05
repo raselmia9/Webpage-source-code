@@ -31,11 +31,11 @@ jobs:
       - name: Run Python Script
         run: python main.py
 
-      # সবকটি ফাইল গিটহব রিপোজটরিতে সেভ (Commit & Push) করার জন্য ঠিক করা হলো
+      # Row_Link ফোল্ডারসহ সব ফাইল গিটহব রিপোজটরিতে সেভ (Commit & Push) করার জন্য আপডেট করা হলো
       - name: Commit and push generated files
         run: |
           git config --global user.name "GitHub Actions Bot"
           git config --global user.email "actions@github.com"
-          git add playlist.m3u index.html status.txt
-          git commit -m "Auto-generated playlist, index, and status [skip ci]" || echo "No changes to commit"
+          git add playlist.m3u index.html status.txt Row_Link/
+          git commit -m "Auto-generated playlists, Row_Link folder, and status [skip ci]" || echo "No changes to commit"
           git push
