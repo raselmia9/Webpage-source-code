@@ -1,6 +1,6 @@
 import asyncio
 import random
-import os
+os_import = __import__('os')
 import re
 from playwright.async_api import async_playwright
 
@@ -11,13 +11,13 @@ async def scrape_webpage():
     index_file = "Index.html"
     row_link_dir = "Row_Link"
     
-    # Row_Link ফোল্ডার তৈরি বা নিশ্চিত করা
-    os.makedirs(row_link_dir, exist_ok=True)
+    os_import.makedirs(row_link_dir, exist_ok=True)
     
     status_messages = []
     m3u_output = ["#EXTM3U"]
     html_match_list = []
 
+    # বিভিন্ন মোবাইল ও ট্যাবলেটের ভিন্ন এবং শক্তিশালী ডিভাইস প্রফাইলসমূহ
     device_profiles = [
         {
             "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
@@ -28,38 +28,45 @@ async def scrape_webpage():
             "user_agent": "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
             "viewport": {"width": 412, "height": 915},
             "device_scale_factor": 2.625
+        },
+        {
+            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
+            "viewport": {"width": 390, "height": 844},
+            "device_scale_factor": 3
+        },
+        {
+            "user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+            "viewport": {"width": 412, "height": 915},
+            "device_scale_factor": 2.625
         }
     ]
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        device = random.choice(device_profiles)
-        context = await browser.new_context(
-            viewport=device["viewport"],
-            device_scale_factor=device["device_scale_factor"],
+        # ১. প্রথমে মূল পেজ থেকে ম্যাচগুলোর লিস্ট সংগ্রহ করার জন্য একটি প্রাথমিক কন্টেক্সট
+        init_device = random.choice(device_profiles)
+        init_context = await browser.new_context(
+            viewport=init_device["viewport"],
+            device_scale_factor=init_device["device_scale_factor"],
             is_mobile=True,
             has_touch=True,
-            user_agent=device["user_agent"],
+            user_agent=init_device["user_agent"],
             locale="bn-BD",
-            timezone_id="Asia/Dhaka",
-            geolocation={"latitude": 23.8103, "longitude": 90.4125},
-            permissions=["geolocation"]
+            timezone_id="Asia/Dhaka"
         )
-        
-        await context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
-        page = await context.new_page()
+        init_page = await init_context.new_page()
         
         print("🟢 Opening FanCode Live page...")
         try:
-            await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+            await init_page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(6)
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
+            await init_page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
             await asyncio.sleep(3)
         except Exception as e:
             print(f"🔴 Error loading main page: {str(e)}")
             
-        matches = await page.evaluate("""() => {
+        matches = await init_page.evaluate("""() => {
             let items = [];
             let links = document.querySelectorAll('a[href*="/matches/"]');
             links.forEach(a => {
@@ -72,32 +79,41 @@ async def scrape_webpage():
                     }
                 }
             });
-            return items.slice(0, 5);
+            return items.slice(0, 10);
         }""")
         
+        await init_context.close()
         print(f"🟢 Found matches count: {len(matches)}")
         
         if not matches:
             print("🟡 No matches found.")
             status_messages.append("🔴 No matches found on main page.")
         else:
+            # ২. প্রতিটি ম্যাচের জন্য সম্পূর্ণ আলাদা এবং নতুন পরিচয় (Fresh Context) তৈরি করে লুপ চালানো
             for match in matches:
                 m_title = match['title']
                 m_url = match['href']
-                print(f"🟡 Processing: {m_title}")
+                print(f"🟡 Processing with NEW identity: {m_title}")
                 
                 safe_title = re.sub(r'[\\/*?:"<>|]', "", m_title).strip()
                 if not safe_title:
                     safe_title = "fancode_match"
                 
-                m_device = random.choice(device_profiles)
+                # প্রতিবার র‍্যান্ডম নতুন ডিভাইস ও জিরো কুকি কনটেক্সট
+                unique_device = random.choice(device_profiles)
                 m_context = await browser.new_context(
-                    viewport=m_device["viewport"],
-                    device_scale_factor=m_device["device_scale_factor"],
+                    viewport=unique_device["viewport"],
+                    device_scale_factor=unique_device["device_scale_factor"],
                     is_mobile=True,
                     has_touch=True,
-                    user_agent=m_device["user_agent"]
+                    user_agent=unique_device["user_agent"],
+                    locale="bn-BD",
+                    timezone_id="Asia/Dhaka",
+                    geolocation={"latitude": 23.8103, "longitude": 90.4125},
+                    permissions=["geolocation"]
                 )
+                
+                await m_context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
                 m_page = await m_context.new_page()
                 
                 captured_links = []
@@ -105,44 +121,46 @@ async def scrape_webpage():
                 
                 try:
                     await m_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
-                    print("🟡 Waiting for stream to trigger...")
+                    print("🟡 Waiting for stream API & trial trigger...")
                     await asyncio.sleep(8)
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
                 m3u8_link = next((l for l in captured_links if "master" in l or "hls" in l), captured_links[0] if captured_links else None)
-                
                 final_stream_url = m3u8_link if m3u8_link else m_url
                 
-                # ১. Row_Link ফোল্ডারে আলাদা ম্যাচের .m3u ফাইল তৈরি করা
-                match_file_path = os.path.join(row_link_dir, f"{safe_title}.m3u")
+                # আলাদা ফাইলে সংরক্ষণ (Row_Link)
+                match_file_path = os_import.path.join(row_link_dir, f"{safe_title}.m3u")
                 match_m3u_content = f"""#EXTM3U
 #EXTINF:-1,{m_title}
 {final_stream_url}"""
                 with open(match_file_path, "w", encoding="utf-8") as mf:
                     mf.write(match_m3u_content)
 
-                # ২. মূল playlist.m3u এর জন্য ডেটা যোগ করা
+                # মূল playlist.m3u এর ডেটা
                 m3u_output.append(f'#EXTINF:-1,{m_title}')
                 m3u_output.append(final_stream_url)
                 
-                # ৩. Index.html এর জন্য লিস্ট তৈরি করা
+                # Index.html এর লিস্ট
                 html_match_list.append(f"<li><b>{m_title}</b>: <a href='{final_stream_url}' target='_blank'>Stream Link</a> | <a href='Row_Link/{safe_title}.m3u' target='_blank'>Download .m3u</a></li>")
                 
-                status_messages.append(f"🟢 Success: {m_title}")
+                if m3u8_link:
+                    status_messages.append(f"🟢 Success: {m_title}")
+                else:
+                    status_messages.append(f"🟡 Fallback (Trial/Link missing): {m_title}")
+                
+                # কাজ শেষ হওয়ার সাথে সাথে এই কন্টেক্সট পুরোপুরি ধ্বংস বা বন্ধ করা যাতে ক্যাশ বা কুকি ডিলিট হয়ে যায়
                 await m_context.close()
 
         await browser.close()
         
-        # ৪. মূল playlist.m3u ফাইল সেভ করা
+        # ৩. ৪টি প্রধান ফাইল আপডেট করা
         with open(playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_output))
             
-        # ৫. status.txt ফাইল সেভ করা
         with open(status_file, "w", encoding="utf-8") as sf:
             sf.write("\n".join(status_messages) if status_messages else "🔴 No status recorded.")
 
-        # ৬. Index.html ফাইল আপডেট বা ক্রিয়েট করা
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -158,7 +176,7 @@ async def scrape_webpage():
 </head>
 <body>
     <h1>FanCode Live Matches</h1>
-    <p>Auto-generated live stream playlists and individual match files.</p>
+    <p>Auto-generated live stream playlists with fresh device identities.</p>
     <ul>
         {"".join(html_match_list) if html_match_list else "<li>No active matches found right now.</li>"}
     </ul>
@@ -167,7 +185,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 All 4 targets (playlist.m3u, status.txt, Index.html, Row_Link) successfully updated and saved.")
+        print("🟢 All 4 targets successfully generated with independent identities!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
