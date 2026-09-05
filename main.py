@@ -23,21 +23,11 @@ async def scrape_webpage():
             "user_agent": "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
             "viewport": {"width": 412, "height": 915},
             "device_scale_factor": 2.625
-        },
-        {
-            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
-            "viewport": {"width": 390, "height": 844},
-            "device_scale_factor": 3
-        },
-        {
-            "user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-            "viewport": {"width": 412, "height": 915},
-            "device_scale_factor": 2.625
         }
     ]
 
     async with async_playwright() as p:
-        # ১. প্রথমে মূল পেজ থেকে ম্যাচগুলোর লিস্ট সংগ্রহ করা
+        # ১. মূল পেজ থেকে লোগো, টাইটেল এবং লিংক একসাথে সংগ্রহ করা
         temp_browser = await p.chromium.launch(headless=True)
         temp_context = await temp_browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -52,17 +42,21 @@ async def scrape_webpage():
             await temp_page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
             await asyncio.sleep(3)
             
+            # ম্যাচ কার্ড থেকে টাইটেল এবং লোগোসহ ডেটা ফেচ করা
             matches = await temp_page.evaluate("""() => {
                 let items = [];
-                let links = document.querySelectorAll('a[href*="/matches/"]');
-                links.forEach(a => {
+                let matchCards = document.querySelectorAll('a[href*="/matches/"]');
+                matchCards.forEach(a => {
                     let href = a.href;
-                    let text = a.innerText.trim();
-                    if (href && text && !items.some(i => i.href === href)) {
-                        let cleanText = text.replace(/\\n/g, ' - ').replace(/LIVE/g, '').trim();
-                        if(cleanText.length > 3) {
-                            items.push({ title: cleanText, href: href });
-                        }
+                    let text = a.innerText.replace(/\\n/g, ' - ').trim();
+                    let cleanText = text.replace(/LIVE/g, '').replace(/\\s+/g, ' ').trim();
+                    
+                    // লোগো বা ইমেজ খোঁজা
+                    let imgTag = a.querySelector('img');
+                    let logoUrl = imgTag ? (imgTag.src || imgTag.getAttribute('data-src') || '') : '';
+
+                    if (href && cleanText.length > 5 && !items.some(i => i.href === href)) {
+                        items.push({ title: cleanText, href: href, logo: logoUrl });
                     }
                 });
                 return items.slice(0, 10);
@@ -77,11 +71,12 @@ async def scrape_webpage():
             print("🟡 No matches found.")
             status_messages.append("🔴 No matches found on main page.")
         else:
-            # ২. প্রতিটি ম্যাচের জন্য সম্পূর্ণ আলাদা এবং স্বাধীন নতুন ব্রাউজার ইন্সট্যান্স লঞ্চ করা (ট্রায়াল বাইপাস করতে)
+            # ২. প্রতিটি ম্যাচের জন্য আলাদা ব্রাউজার দিয়ে মাস্টার লিংক ক্যাপচার করা
             for match in matches:
                 m_title = match['title']
                 m_url = match['href']
-                print(f"🟡 Processing with BRAND NEW Browser: {m_title}")
+                m_logo = match['logo']
+                print(f"🟡 Processing: {m_title}")
                 
                 match_browser = await p.chromium.launch(headless=True)
                 unique_device = random.choice(device_profiles)
@@ -106,31 +101,29 @@ async def scrape_webpage():
                 
                 try:
                     await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
-                    print("🟡 Waiting for stream API & fresh trial trigger...")
                     await asyncio.sleep(8)
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
                 m3u8_link = next((l for l in captured_links if "master" in l or "hls" in l), captured_links[0] if captured_links else None)
                 
-                # ৩. যদি মাস্টার লিংক পাওয়া যায়, তবে playlist.m3u তে ওয়াচ পেজের পরিবর্তে এই m3u8 লিংক বসবে
+                # ৩. সঠিক লোগো এবং টাইটেল ফরম্যাটসহ প্লেলিস্টে যুক্ত করা
                 if m3u8_link:
-                    print(f"🟢 Captured Master Link: {m3u8_link}")
-                    m3u_output.append(f'#EXTINF:-1,{m_title}')
-                    m3u_output.append(m3u8_link)  # এখানে ওয়াচ পেজের বদলে m3u8 লিংক বসানো হলো
-                    html_match_list.append(f"<li><b>{m_title}</b>: <a href='{m3u8_link}' target='_blank'>Direct Stream Link</a></li>")
+                    print(f"🟢 Captured Master Link with Logo for: {m_title}")
+                    m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
+                    m3u_output.append(m3u8_link)
+                    html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b>: <a href='{m3u8_link}' target='_blank'>Direct Stream Link</a></li>")
                     status_messages.append(f"🟢 Success: {m_title}")
                 else:
-                    # লিংক না পেলে ফলব্যাক হিসেবে পুরনো ম্যাচ পেজের লিংক বা মেসেজ রাখতে পারেন, অথবা স্কিপ করতে পারেন
-                    print(f"🟡 Master link not found, using match page link as fallback: {m_title}")
-                    m3u_output.append(f'#EXTINF:-1,{m_title} (Trial Expired/Fallback)')
+                    print(f"🟡 Fallback used for: {m_title}")
+                    m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title} (Fallback)')
                     m3u_output.append(m_url) 
-                    html_match_list.append(f"<li><b>{m_title}</b>: <a href='{m_url}' target='_blank'>Fallback Match Page</a></li>")
+                    html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b>: <a href='{m_url}' target='_blank'>Fallback Match Page</a></li>")
                     status_messages.append(f"🟡 Fallback Used: {m_title}")
                 
                 await match_browser.close()
 
-        # ৪. ফাইলগুলোতে ডেটা সেভ করা
+        # ৪. ফাইল সেভ করা
         with open(playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_output))
             
@@ -145,14 +138,14 @@ async def scrape_webpage():
     <style>
         body {{ font-family: Arial, sans-serif; margin: 20px; background: #121212; color: #fff; }}
         h1 {{ color: #ff6600; }}
-        ul {{ line-height: 1.8; }}
+        ul {{ line-height: 2; }}
         a {{ color: #00bcd4; text-decoration: none; }}
         a:hover {{ text-decoration: underline; }}
     </style>
 </head>
 <body>
     <h1>FanCode Live Matches</h1>
-    <p>Direct master .m3u8 streaming links inside playlist.m3u</p>
+    <p>Direct master .m3u8 streaming links with team logos and titles.</p>
     <ul>
         {"".join(html_match_list) if html_match_list else "<li>No active streams found right now.</li>"}
     </ul>
@@ -161,7 +154,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 playlist.m3u successfully updated with direct m3u8 links!")
+        print("🟢 playlist.m3u updated successfully with logos and proper titles!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
