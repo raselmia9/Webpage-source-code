@@ -1,5 +1,6 @@
 import asyncio
 import random
+import os
 import re
 from playwright.async_api import async_playwright
 
@@ -7,9 +8,15 @@ async def scrape_webpage():
     target_url = "https://www.fancode.com/bd/live-now/all-sports"
     playlist_file = "playlist.m3u"
     status_file = "status.txt"
+    index_file = "Index.html"
+    row_link_dir = "Row_Link"
+    
+    # Row_Link ফোল্ডার তৈরি বা নিশ্চিত করা
+    os.makedirs(row_link_dir, exist_ok=True)
     
     status_messages = []
     m3u_output = ["#EXTM3U"]
+    html_match_list = []
 
     device_profiles = [
         {
@@ -52,7 +59,6 @@ async def scrape_webpage():
         except Exception as e:
             print(f"🔴 Error loading main page: {str(e)}")
             
-        # সিনট্যাক্স ঠিক করা হয়েছে
         matches = await page.evaluate("""() => {
             let items = [];
             let links = document.querySelectorAll('a[href*="/matches/"]');
@@ -80,6 +86,10 @@ async def scrape_webpage():
                 m_url = match['href']
                 print(f"🟡 Processing: {m_title}")
                 
+                safe_title = re.sub(r'[\\/*?:"<>|]', "", m_title).strip()
+                if not safe_title:
+                    safe_title = "fancode_match"
+                
                 m_device = random.choice(device_profiles)
                 m_context = await browser.new_context(
                     viewport=m_device["viewport"],
@@ -102,28 +112,62 @@ async def scrape_webpage():
                 
                 m3u8_link = next((l for l in captured_links if "master" in l or "hls" in l), captured_links[0] if captured_links else None)
                 
-                if m3u8_link:
-                    print(f"🟢 Captured M3U8: {m3u8_link}")
-                    m3u_output.append(f'#EXTINF:-1,{m_title}')
-                    m3u_output.append(m3u8_link)
-                    status_messages.append(f"🟢 Success: {m_title}")
-                else:
-                    print(f"🟡 M3U8 not found, using watch url.")
-                    m3u_output.append(f'#EXTINF:-1,{m_title}')
-                    m3u_output.append(m_url)
-                    status_messages.append(f"🟡 Fallback: {m_title}")
+                final_stream_url = m3u8_link if m3u8_link else m_url
                 
+                # ১. Row_Link ফোল্ডারে আলাদা ম্যাচের .m3u ফাইল তৈরি করা
+                match_file_path = os.path.join(row_link_dir, f"{safe_title}.m3u")
+                match_m3u_content = f"""#EXTM3U
+#EXTINF:-1,{m_title}
+{final_stream_url}"""
+                with open(match_file_path, "w", encoding="utf-8") as mf:
+                    mf.write(match_m3u_content)
+
+                # ২. মূল playlist.m3u এর জন্য ডেটা যোগ করা
+                m3u_output.append(f'#EXTINF:-1,{m_title}')
+                m3u_output.append(final_stream_url)
+                
+                # ৩. Index.html এর জন্য লিস্ট তৈরি করা
+                html_match_list.append(f"<li><b>{m_title}</b>: <a href='{final_stream_url}' target='_blank'>Stream Link</a> | <a href='Row_Link/{safe_title}.m3u' target='_blank'>Download .m3u</a></li>")
+                
+                status_messages.append(f"🟢 Success: {m_title}")
                 await m_context.close()
 
         await browser.close()
         
+        # ৪. মূল playlist.m3u ফাইল সেভ করা
         with open(playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_output))
             
+        # ৫. status.txt ফাইল সেভ করা
         with open(status_file, "w", encoding="utf-8") as sf:
             sf.write("\n".join(status_messages) if status_messages else "🔴 No status recorded.")
+
+        # ৬. Index.html ফাইল আপডেট বা ক্রিয়েট করা
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FanCode Live Playlists</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; background: #121212; color: #fff; }}
+        h1 {{ color: #ff6600; }}
+        ul {{ line-height: 1.8; }}
+        a {{ color: #00bcd4; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+    </style>
+</head>
+<body>
+    <h1>FanCode Live Matches</h1>
+    <p>Auto-generated live stream playlists and individual match files.</p>
+    <ul>
+        {"".join(html_match_list) if html_match_list else "<li>No active matches found right now.</li>"}
+    </ul>
+</body>
+</html>"""
+        with open(index_file, "w", encoding="utf-8") as hf:
+            hf.write(html_content)
             
-        print("🟢 Files successfully updated and saved.")
+        print("🟢 All 4 targets (playlist.m3u, status.txt, Index.html, Row_Link) successfully updated and saved.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
