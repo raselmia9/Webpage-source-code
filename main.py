@@ -16,6 +16,7 @@ async def scrape_webpage():
     branch_name = "main"
     base_raw_url = f"https://raw.githubusercontent.com/{github_username}/{repo_name}/refs/heads/{branch_name}/{row_link_folder}"
     
+    # Row_Link ফোল্ডার পরিষ্কার করা বা তৈরি করা
     if os.path.exists(row_link_folder):
         for old_file in os.listdir(row_link_folder):
             old_file_path = os.path.join(row_link_folder, old_file)
@@ -107,19 +108,9 @@ async def scrape_webpage():
                 await match_context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
                 match_page = await match_context.new_page()
                 
-                captured_playlist_text = [None]
-                
-                # ব্রাউজারে যখন মাস্টার লিংক রিকোয়েস্ট হবে, তখন সরাসরি রেসপন্স বডি (ভেতরের মাল্টি-রেজুলেশন টেক্সট) লুফে নেওয়া
-                async def intercept_response(response):
-                    if "index.m3u8" in response.url:
-                        try:
-                            body = await response.text()
-                            if "#EXT-X-STREAM-INF" in body:
-                                captured_playlist_text[0] = body
-                        except:
-                            pass
-
-                match_page.on("response", lambda resp: asyncio.create_task(intercept_response(resp)))
+                captured_links = []
+                # সরাসরি নেটওয়ার্ক রিকোয়েস্ট থেকে master index.m3u8 লিংকটি ক্যাচ করা
+                match_page.on("request", lambda req: captured_links.append(req.url) if "index.m3u8" in req.url else None)
                 
                 try:
                     await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
@@ -127,32 +118,35 @@ async def scrape_webpage():
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                playlist_data = captured_playlist_text[0]
+                # মাস্টার লিংক খুঁজে বের করা
+                master_link = next((l for l in captured_links if "index.m3u8" in l), None)
                 
-                if not playlist_data:
-                    print(f"🔴 Stream content not captured for: {m_title}. Skipping.")
-                    status_messages.append(f"🔴 Skipped (Invalid Content): {m_title}")
+                if not master_link:
+                    print(f"🔴 Master playlist link not found for: {m_title}. Skipping.")
+                    status_messages.append(f"🔴 Skipped (No Master Link): {m_title}")
                     await match_browser.close()
                     continue
                 
-                print(f"🟢 Successfully Captured Stream Data for: {m_title}")
+                print(f"🟢 Captured Master Link: {master_link}")
                 
                 safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
                 safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
                 match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
                 match_file_path = os.path.join(row_link_folder, match_file_name)
                 
-                # সরাসরি মাস্টার লিংকের ভেতরের আসল মাল্টি-রেজুলেশন ডেটা দিয়ে ফাইল সাজানো
+                # Row ফোল্ডারের ফাইলের ভেতরে মাস্টার লিংক বসানো
                 sub_file_content = [
                     "#EXTM3U",
                     f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}',
-                    playlist_data.strip()
+                    "#EXT-X-VERSION:3",
+                    '#EXT-X-STREAM-INF:BANDWIDTH=1789512,AVERAGE-BANDWIDTH=1789512,CODECS="avc1.64001f,mp4a.40.2",PROGRAM-ID=1,RESOLUTION=1280x720,FRAME-RATE=25.000',
+                    master_link
                 ]
-                
-                status_messages.append(f"🟢 Success: {m_title}")
                 
                 with open(match_file_path, "w", encoding="utf-8") as sf:
                     sf.write("\n".join(sub_file_content))
+                
+                status_messages.append(f"🟢 Success: {m_title}")
                 
                 full_raw_file_url = f"{base_raw_url}/{match_file_name}"
                 main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
@@ -162,12 +156,15 @@ async def scrape_webpage():
                 
                 await match_browser.close()
 
+        # playlist.m3u ফাইল তৈরি
         with open(main_playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(main_m3u_output))
             
+        # status.txt ফাইল তৈরি
         with open(status_file, "w", encoding="utf-8") as sf:
             sf.write("\n".join(status_messages) if status_messages else "🔴 No status recorded.")
 
+        # Index.html ফাইল তৈরি
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -192,7 +189,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed successfully!")
+        print("🟢 Process completed successfully! All files and status updated.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
