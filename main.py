@@ -27,7 +27,6 @@ async def scrape_webpage():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        # ইউনিক ডিভাইস দিয়ে পেজ ওপেন করা
         device = random.choice(device_profiles)
         context = await browser.new_context(
             viewport=device["viewport"],
@@ -48,14 +47,12 @@ async def scrape_webpage():
         try:
             await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(6)
-            
-            # পেজ একটু স্ক্রোল করা যাতে কন্টেন্ট লোড হয়
             await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
             await asyncio.sleep(3)
         except Exception as e:
             print(f"🔴 Error loading main page: {str(e)}")
             
-        # ম্যাচ লিংকগুলো খুঁজে বের করার শক্তিশালী সিলেক্টর
+        # সিনট্যাক্স ঠিক করা হয়েছে
         matches = await page.evaluate("""() => {
             let items = [];
             let links = document.querySelectorAll('a[href*="/matches/"]');
@@ -69,14 +66,13 @@ async def scrape_webpage():
                     }
                 }
             });
-            return items;
-        .slice(0, 5); // পরীক্ষামূলকভাবে প্রথম ৫টি ম্যাচ নেব
+            return items.slice(0, 5);
         }""")
         
         print(f"🟢 Found matches count: {len(matches)}")
         
         if not matches:
-            print("🟡 No matches found via selector, checking fallback...")
+            print("🟡 No matches found.")
             status_messages.append("🔴 No matches found on main page.")
         else:
             for match in matches:
@@ -84,7 +80,6 @@ async def scrape_webpage():
                 m_url = match['href']
                 print(f"🟡 Processing: {m_title}")
                 
-                # প্রতিটি ম্যাচের জন্য একদম নতুন ট্যাব/কন্টেক্সট (যাতে ট্রায়াল লিমিট রিসেট থাকে)
                 m_device = random.choice(device_profiles)
                 m_context = await browser.new_context(
                     viewport=m_device["viewport"],
@@ -96,18 +91,15 @@ async def scrape_webpage():
                 m_page = await m_context.new_page()
                 
                 captured_links = []
-                
-                # নেটওয়ার্ক রিকোয়েস্ট থেকে m3u8 ধরা
                 m_page.on("request", lambda req: captured_links.append(req.url) if ".m3u8" in req.url else None)
                 
                 try:
                     await m_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
                     print("🟡 Waiting for stream to trigger...")
-                    await asyncio.sleep(8) # ভিডিও লোড হওয়ার সময়
+                    await asyncio.sleep(8)
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                # লিংক ফিল্টার করা
                 m3u8_link = next((l for l in captured_links if "master" in l or "hls" in l), captured_links[0] if captured_links else None)
                 
                 if m3u8_link:
@@ -125,7 +117,6 @@ async def scrape_webpage():
 
         await browser.close()
         
-        # ফাইল নিশ্চিতভাবে সেভ করা
         with open(playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_output))
             
