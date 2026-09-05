@@ -1,16 +1,22 @@
 import asyncio
+import os
 import random
 import re
 from playwright.async_api import async_playwright
 
 async def scrape_webpage():
     target_url = "https://www.fancode.com/bd/live-now/all-sports"
-    playlist_file = "playlist.m3u"
+    main_playlist_file = "playlist.m3u"
+    row_link_folder = "Row_Link"
     status_file = "status.txt"
     index_file = "Index.html"
     
+    # Row_Link ফোল্ডার তৈরি করা (যদি না থাকে)
+    if not os.path.exists(row_link_folder):
+        os.makedirs(row_link_folder)
+        
     status_messages = []
-    m3u_output = ["#EXTM3U"]
+    main_m3u_output = ["#EXTM3U"]
     html_match_list = []
 
     device_profiles = [
@@ -27,7 +33,6 @@ async def scrape_webpage():
     ]
 
     async with async_playwright() as p:
-        # ১. মূল পেজ থেকে লোগো, টাইটেল এবং লিংক একসাথে সংগ্রহ করা
         temp_browser = await p.chromium.launch(headless=True)
         temp_context = await temp_browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -42,7 +47,6 @@ async def scrape_webpage():
             await temp_page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2);")
             await asyncio.sleep(3)
             
-            # ম্যাচ কার্ড থেকে টাইটেল এবং লোগোসহ ডেটা ফেচ করা
             matches = await temp_page.evaluate("""() => {
                 let items = [];
                 let matchCards = document.querySelectorAll('a[href*="/matches/"]');
@@ -51,7 +55,6 @@ async def scrape_webpage():
                     let text = a.innerText.replace(/\\n/g, ' - ').trim();
                     let cleanText = text.replace(/LIVE/g, '').replace(/\\s+/g, ' ').trim();
                     
-                    // লোগো বা ইমেজ খোঁজা
                     let imgTag = a.querySelector('img');
                     let logoUrl = imgTag ? (imgTag.src || imgTag.getAttribute('data-src') || '') : '';
 
@@ -71,12 +74,17 @@ async def scrape_webpage():
             print("🟡 No matches found.")
             status_messages.append("🔴 No matches found on main page.")
         else:
-            # ২. প্রতিটি ম্যাচের জন্য আলাদা ব্রাউজার দিয়ে মাস্টার লিংক ক্যাপচার করা
-            for match in matches:
+            for index, match in enumerate(matches):
                 m_title = match['title']
                 m_url = match['href']
                 m_logo = match['logo']
                 print(f"🟡 Processing: {m_title}")
+                
+                # ফাইলের নামের জন্য নিরাপদ স্ট্রিং তৈরি করা (স্পেশাল ক্যারেক্টার রিমুভ)
+                safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
+                safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
+                match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u"
+                match_file_path = os.path.join(row_link_folder, match_file_name)
                 
                 match_browser = await p.chromium.launch(headless=True)
                 unique_device = random.choice(device_profiles)
@@ -105,27 +113,65 @@ async def scrape_webpage():
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                m3u8_link = next((l for l in captured_links if "master" in l or "hls" in l), captured_links[0] if captured_links else None)
+                base_stream_link = next((l for l in captured_links if "hls" in l or "p.m3u8" in l), captured_links[0] if captured_links else None)
                 
-                # ৩. সঠিক লোগো এবং টাইটেল ফরম্যাটসহ প্লেলিস্টে যুক্ত করা
-                if m3u8_link:
-                    print(f"🟢 Captured Master Link with Logo for: {m_title}")
-                    m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
-                    m3u_output.append(m3u8_link)
-                    html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b>: <a href='{m3u8_link}' target='_blank'>Direct Stream Link</a></li>")
-                    status_messages.append(f"🟢 Success: {m_title}")
+                # সাব-ফাইলের কন্টেন্ট তৈরির তালিকা
+                sub_file_content = ["#EXTM3U"]
+                
+                if base_stream_link:
+                    print(f"🟢 Captured Base Stream Link for: {m_title}")
+                    
+                    sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
+                    sub_file_content.append("#EXT-X-VERSION:3")
+                    
+                    clean_base_link = re.sub(r'(\d+p)?\.m3u8', '', base_stream_link)
+                    if not clean_base_link.endswith('/'):
+                        clean_base_link += '/'
+                    query_params = base_stream_link.split('?')[1] if '?' in base_stream_link else ''
+                    query_str = f"?{query_params}" if query_params else ""
+                    
+                    resolutions = [
+                        {"res": "240p", "bandwidth": "446936", "size": "426x240", "codecs": "avc1.42e015,mp4a.40.2"},
+                        {"res": "360p", "bandwidth": "702376", "size": "640x360", "codecs": "avc1.42e01e,mp4a.40.2"},
+                        {"res": "480p", "bandwidth": "1023224", "size": "854x480", "codecs": "avc1.4d401e,mp4a.40.2"},
+                        {"res": "540p", "bandwidth": "1278664", "size": "960x540", "codecs": "avc1.4d401f,mp4a.40.2"},
+                        {"res": "720p", "bandwidth": "1789512", "size": "1280x720", "codecs": "avc1.64001f,mp4a.40.2"},
+                        {"res": "1080p", "bandwidth": "3322120", "size": "1920x1080", "codecs": "avc1.640028,mp4a.40.2"}
+                    ]
+                    
+                    for item in resolutions:
+                        r = item["res"]
+                        bw = item["bandwidth"]
+                        sz = item["size"]
+                        cd = item["codecs"]
+                        
+                        link_with_res = f"{clean_base_link}{r}.m3u8{query_str}"
+                        sub_file_content.append(f'#EXT-X-STREAM-INF:BANDWIDTH={bw},AVERAGE-BANDWIDTH={bw},CODECS="{cd}",PROGRAM-ID=1,RESOLUTION={sz},FRAME-RATE=25.000')
+                        sub_file_content.append(link_with_res)
+                    
+                    status_messages.append(f"🟢 Success (Multi-Res): {m_title}")
                 else:
                     print(f"🟡 Fallback used for: {m_title}")
-                    m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title} (Fallback)')
-                    m3u_output.append(m_url) 
-                    html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b>: <a href='{m_url}' target='_blank'>Fallback Match Page</a></li>")
+                    sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title} (Fallback)')
+                    sub_file_content.append(m_url)
                     status_messages.append(f"🟡 Fallback Used: {m_title}")
+                
+                # সাব-ফাইল (.m3u) Row_Link ফোল্ডারের ভেতরে সেভ করা
+                with open(match_file_path, "w", encoding="utf-8") as sf:
+                    sf.write("\n".join(sub_file_content))
+                
+                # মূল playlist.m3u ফাইলে Row_Link ফাইলের পাথ রেফারেন্স হিসেবে যোগ করা
+                main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
+                main_m3u_output.append(f"{row_link_folder}/{match_file_name}")
+                
+                # ওয়েব প্রিভিউ বা ইনডেক্সের জন্য লিস্ট তৈরি
+                html_match_list.append(f"<li><img src='{m_logo}' width='30' style='vertical-align:middle;margin-right:8px;'><b>{m_title}</b> -> <a href='{row_link_folder}/{match_file_name}' target='_blank'>Row File</a></li>")
                 
                 await match_browser.close()
 
-        # ৪. ফাইল সেভ করা
-        with open(playlist_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(m3u_output))
+        # মূল playlist.m3u ফাইল সেভ করা
+        with open(main_playlist_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(main_m3u_output))
             
         with open(status_file, "w", encoding="utf-8") as sf:
             sf.write("\n".join(status_messages) if status_messages else "🔴 No status recorded.")
@@ -144,8 +190,8 @@ async def scrape_webpage():
     </style>
 </head>
 <body>
-    <h1>FanCode Live Matches</h1>
-    <p>Direct master .m3u8 streaming links with team logos and titles.</p>
+    <h1>FanCode Live Matches (Row Links Structure)</h1>
+    <p>Individual match playlist files are stored in the <code>{row_link_folder}/</code> folder.</p>
     <ul>
         {"".join(html_match_list) if html_match_list else "<li>No active streams found right now.</li>"}
     </ul>
@@ -154,7 +200,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 playlist.m3u updated successfully with logos and proper titles!")
+        print("🟢 Process completed! Row_Link files and main playlist generated successfully.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
