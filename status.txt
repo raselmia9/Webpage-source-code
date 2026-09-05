@@ -1,6 +1,6 @@
-🟡 Opening URL as a mobile user from Bangladesh: https://www.fancode.com/bd/live-now/all-sports
+🟡 Opening URL with a Fresh Random Device Profile from Bangladesh: https://www.fancode.com/bd/live-now/all-sports
 🟡 Scanning page text for active live matches...
-🟢 100% CONFIRMED: Live match cards loaded successfully!
+🟢 100% CONFIRMED: Live match cards loaded successfully with fresh device ID!
 🟢 Live Match Found: Dehradun T20 League 2026
 🟢 Live Match Found: Herbertpur Knight Riders
 🟢 Live Match Found: Mussoorie Thunder
