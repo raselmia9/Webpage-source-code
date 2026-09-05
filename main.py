@@ -9,9 +9,7 @@ async def scrape_webpage():
     status_file = "status.txt"
     row_link_dir = "Row_Link"
     
-    # Row_Link ফোল্ডার তৈরি করা না থাকলে তৈরি করে নেওয়া
     os.makedirs(row_link_dir, exist_ok=True)
-    
     status_messages = []
 
     mobile_devices = [
@@ -35,7 +33,7 @@ async def scrape_webpage():
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         
-        # ১. প্রথমে লাইভ পেজ থেকে সমস্ত ম্যাচের তালিকা ও ওয়াচ লিংক সংগ্রহ করা
+        # ১. লাইভ পেজ থেকে ম্যাচের তালিকা ও ওয়াচ লিংক সংগ্রহ
         selected_device = random.choice(mobile_devices)
         context = await browser.new_context(
             viewport=selected_device["viewport"],
@@ -63,7 +61,6 @@ async def scrape_webpage():
         await asyncio.sleep(2)
         
         page_text = await page.evaluate("document.body.innerText")
-        
         matches_to_process = []
         
         if "LIVE" in page_text:
@@ -91,13 +88,13 @@ async def scrape_webpage():
         await context.close()
         
         if not matches_to_process:
-            msg = "🔴 No active match links found to capture m3u8."
+            msg = "🔴 No active match links found."
             print(msg)
             status_messages.append(msg)
         else:
-            print(f"🟢 Found {len(matches_to_process)} match(es). Capturing m3u8 streams...")
+            print(f"🟢 Found {len(matches_to_process)} match(es). Capturing stream APIs...")
             
-            # ২. প্রতিটি ম্যাচের ওয়াচ পেজে আলাদা ফ্রেশ ব্রাউজার কনটেক্সট দিয়ে প্রবেশ করে m3u8 ক্যাপচার করা
+            # ২. প্রতিটি ম্যাচের ওয়াচ পেজে প্রবেশ করে API রেসপন্স থেকে m3u8 লিংক ধরা
             for match in matches_to_process:
                 match_title = match['title']
                 match_url = match['href']
@@ -108,7 +105,6 @@ async def scrape_webpage():
                 
                 print(f"🟡 Processing match: {match_title}")
                 
-                # প্রতিটি ম্যাচের জন্য একদম নতুন ফ্রেশ ডিভাইস প্রোফাইল
                 match_device = random.choice(mobile_devices)
                 m_context = await browser.new_context(
                     viewport=match_device["viewport"],
@@ -124,34 +120,48 @@ async def scrape_webpage():
                 await m_context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
                 m_page = await m_context.new_page()
                 
-                master_m3u8_url = []
+                captured_master_url = []
                 
-                # নেটওয়ার্ক রিকোয়েস্ট ইন্টারসেপ্ট করে .m3u8 বা মাস্টার প্লেলিস্ট ধরা
-                m_page.on("request", lambda req: master_m3u8_url.append(req.url) if ".m3u8" in req.url and ("hls" in req.url or "pdlive" in req.url) else None)
+                # নেটওয়ার্ক রেসপন্স ইন্টারসেপ্ট করে .m3u8 লিংক বা স্ট্রিম এপিআই খুঁজে বের করা
+                async def handle_response(response):
+                    try:
+                        url = response.url
+                        if ".m3u8" in url or "playback" in url or "stream" in url:
+                            if "master" in url or "hls" in url or "pdlive" in url:
+                                captured_master_url.append(url)
+                            # যদি এপিআই রেসপন্স JSON হয়, তার ভেতর থেকেও m3u8 খুঁজে নেওয়া
+                            if "application/json" in response.headers.get("content-type", ""):
+                                text = await response.text()
+                                if ".m3u8" in text:
+                                    found_urls = re.findall(r'https?://[^\s<>"]+?\.m3u8[^\s<>"]*', text)
+                                    for fu in found_urls:
+                                        captured_master_url.append(fu)
+                    except:
+                        pass
+
+                m_page.on("response", handle_response)
                 
                 try:
                     await m_page.goto(match_url, wait_until="networkidle", timeout=35000)
-                    # প্লেয়ার লোড হয়ে স্ট্রিম রিকোয়েস্ট পাঠানোর জন্য সময় দেওয়া
-                    await asyncio.sleep(8)
-                    
-                    # যদি সরাসরি রিকোয়েস্টে m3u8 না পাওয়া যায়, পেজের ভেতরে প্লে বাটন ক্লিক সিমুলেট করা যেতে পারে
-                    await m_page.evaluate("window.scrollTo(0, 300);")
-                    await asyncio.sleep(3)
+                    # প্লেয়ার ও ভিডিও স্ট্রিম রিকোয়েস্ট ট্রিগার হওয়ার জন্য পর্যাপ্ত সময় ও স্ক্রোলিং
+                    await asyncio.sleep(6)
+                    await m_page.evaluate("window.scrollTo(0, 400);")
+                    await asyncio.sleep(5)
                 except Exception as e:
-                    print(f"🟡 Error loading match page {match_title}: {str(e)}")
+                    print(f"🟡 Error loading match page: {str(e)}")
                 
-                playlist_content = None
-                # ক্যাপচার করা m3u8 লিংক থেকে ব্রাউজারের সেশন ব্যবহার করে মূল ডাটা ফেচ করা
-                target_m3u8 = next((url for url in master_m3u8_url if "master" in url or "index" in url or "hls" in url), None)
-                if not target_m3u8 and master_m3u8_url:
-                    target_m3u8 = master_m3u8_url[0] # যেকোনো একটি কার্যকরী m3u8 লিংক
+                match_file_path = os.path.join(row_link_dir, f"{safe_title}.m3u")
+                master_playlist_content = None
                 
-                if target_m3u8:
+                # যে মাস্টার .m3u8 লিংকটি পাওয়া গেছে, সেটির ডেটা ফেচ করা
+                valid_m3u8_url = captured_master_url[0] if captured_master_url else None
+                
+                if valid_m3u8_url:
+                    print(f"🟢 Found stream URL: {valid_m3u8_url}")
                     try:
-                        # ব্রাউজারের ভেতর থেকেই ফেচ করলে কুকি ও অথেন্টিকেশন বজায় থাকে
-                        playlist_content = await m_page.evaluate(f"""async () => {{
+                        master_playlist_content = await m_page.evaluate(f"""async () => {{
                             try {{
-                                let res = await fetch('{target_m3u8}');
+                                let res = await fetch('{valid_m3u8_url}');
                                 return await res.text();
                             }} catch(err) {{
                                 return null;
@@ -160,25 +170,41 @@ async def scrape_webpage():
                     except:
                         pass
                 
-                match_file_path = os.path.join(row_link_dir, f"{safe_title}.m3u")
-                
-                if playlist_content and "#EXTM3U" in playlist_content:
+                # যদি মাস্টার প্লেলিস্ট সরাসরি ফেচ করা যায় এবং তা রেজুলেশনভিত্তিক হয়
+                if master_playlist_content and "#EXT-X-STREAM-INF" in master_playlist_content:
                     with open(match_file_path, "w", encoding="utf-8") as f:
-                        f.write(playlist_content)
-                    msg_success = f"🟢 Captured and saved multi-resolution M3U for: {match_title}"
+                        f.write(master_playlist_content)
+                    msg_success = f"🟢 Successfully captured multi-res M3U for: {match_title}"
                     print(msg_success)
                     status_messages.append(msg_success)
                 else:
-                    # যদি মাস্টার প্লেলিস্ট সরাসরি ফেচ না হয়, আপনার দেওয়া ফরম্যাটের ফলব্যাক বা স্ট্যাটাস লেখা
-                    fallback_m3u = f"""#EXTM3U
+                    # যদি মাস্টার প্লেলিস্ট সরাসরি না পাওয়া যায়, তবে পেজের সোর্স থেকে স্ট্রিম খোঁজার চেষ্টা
+                    page_content = await m_page.content()
+                    extracted_from_page = re.findall(r'https?://[^\s<>"]+?\.m3u8[^\s<>"]*', page_content)
+                    
+                    if extracted_from_page:
+                        # যদি পেজের ভেতরে রিয়েল m3u8 লিংক থাকে, তা দিয়ে একটি ফরম্যাট তৈরি করা
+                        stream_url = extracted_from_page[0]
+                        custom_m3u = f"""#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-STREAM-INF:BANDWIDTH=1789512,AVERAGE-BANDWIDTH=1789512,CODECS="avc1.64001f,mp4a.40.2",PROGRAM-ID=1,RESOLUTION=1280x720,FRAME-RATE=25.000
+{stream_url}"""
+                        with open(match_file_path, "w", encoding="utf-8") as f:
+                            f.write(custom_m3u)
+                        msg_p = f"🟢 Captured stream link from page content for: {match_title}"
+                        print(msg_p)
+                        status_messages.append(msg_p)
+                    else:
+                        # একদম না পেলে ফলব্যাক
+                        fallback_m3u = f"""#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-STREAM-INF:BANDWIDTH=1789512,AVERAGE-BANDWIDTH=1789512,CODECS="avc1.64001f,mp4a.40.2",PROGRAM-ID=1,RESOLUTION=1280x720,FRAME-RATE=25.000
 {match_url}"""
-                    with open(match_file_path, "w", encoding="utf-8") as f:
-                        f.write(fallback_m3u)
-                    msg_fallback = f"🟡 Saved fallback match info for: {match_title}"
-                    print(msg_fallback)
-                    status_messages.append(msg_fallback)
+                        with open(match_file_path, "w", encoding="utf-8") as f:
+                            f.write(fallback_m3u)
+                        msg_fallback = f"🟡 Saved fallback for: {match_title}"
+                        print(msg_fallback)
+                        status_messages.append(msg_fallback)
                 
                 await m_context.close()
 
@@ -186,7 +212,7 @@ async def scrape_webpage():
         
         with open(status_file, "w", encoding="utf-8") as sf:
             sf.write("\n".join(status_messages))
-        print("🟢 All tasks completed successfully.")
+        print("🟢 All extraction tasks finished.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
