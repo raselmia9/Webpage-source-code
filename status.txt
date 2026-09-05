@@ -1,4 +1,4 @@
 🟡 Opening URL as a mobile user from Bangladesh: https://www.fancode.com/bd/live-now/all-sports
-🟡 Waiting for content (No Matches message or Match cards) to load completely...
-🟡 Timeout reached for specific elements, proceeding with current DOM state.
+🟡 Waiting for 100% confirmation of Live Match cards or No Matches message...
+🟡 WARNING: Could not 100% verify match cards or no-match text. Page might still be loading.
 🟢 Successfully saved fully-rendered HTML to index.html
