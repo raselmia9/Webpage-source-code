@@ -113,20 +113,24 @@ async def scrape_webpage():
                 
                 m3u8_link = next((l for l in captured_links if "master" in l or "hls" in l), captured_links[0] if captured_links else None)
                 
-                # যদি মাস্টার লিংক পাওয়া যায় তবেই প্লেলিস্টে যুক্ত হবে
+                # ৩. যদি মাস্টার লিংক পাওয়া যায়, তবে playlist.m3u তে ওয়াচ পেজের পরিবর্তে এই m3u8 লিংক বসবে
                 if m3u8_link:
                     print(f"🟢 Captured Master Link: {m3u8_link}")
                     m3u_output.append(f'#EXTINF:-1,{m_title}')
-                    m3u_output.append(m3u8_link)
+                    m3u_output.append(m3u8_link)  # এখানে ওয়াচ পেজের বদলে m3u8 লিংক বসানো হলো
                     html_match_list.append(f"<li><b>{m_title}</b>: <a href='{m3u8_link}' target='_blank'>Direct Stream Link</a></li>")
                     status_messages.append(f"🟢 Success: {m_title}")
                 else:
-                    print(f"🟡 Master link not found for: {m_title}")
-                    status_messages.append(f"🟡 Failed (Trial Blocked): {m_title}")
+                    # লিংক না পেলে ফলব্যাক হিসেবে পুরনো ম্যাচ পেজের লিংক বা মেসেজ রাখতে পারেন, অথবা স্কিপ করতে পারেন
+                    print(f"🟡 Master link not found, using match page link as fallback: {m_title}")
+                    m3u_output.append(f'#EXTINF:-1,{m_title} (Trial Expired/Fallback)')
+                    m3u_output.append(m_url) 
+                    html_match_list.append(f"<li><b>{m_title}</b>: <a href='{m_url}' target='_blank'>Fallback Match Page</a></li>")
+                    status_messages.append(f"🟡 Fallback Used: {m_title}")
                 
                 await match_browser.close()
 
-        # ৩. মূল ফাইলগুলো আপডেট করা (playlist.m3u, status.txt, Index.html)
+        # ৪. ফাইলগুলোতে ডেটা সেভ করা
         with open(playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_output))
             
@@ -148,7 +152,7 @@ async def scrape_webpage():
 </head>
 <body>
     <h1>FanCode Live Matches</h1>
-    <p>Direct master .m3u8 streaming links generated automatically.</p>
+    <p>Direct master .m3u8 streaming links inside playlist.m3u</p>
     <ul>
         {"".join(html_match_list) if html_match_list else "<li>No active streams found right now.</li>"}
     </ul>
@@ -157,7 +161,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Playlist, Status, and Index.html successfully updated with direct M3U8 links!")
+        print("🟢 playlist.m3u successfully updated with direct m3u8 links!")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
