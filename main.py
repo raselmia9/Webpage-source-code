@@ -11,13 +11,12 @@ async def scrape_webpage():
     status_file = "status.txt"
     index_file = "Index.html"
     
-    # আপনার গিটহাব ইউজারনেম এবং রিপোজিটরি নাম অনুযায়ী বেস র ইউআরএল
+    # গিটহাব র ইউআরএলের জন্য তথ্য
     github_username = "raselmia9"
     repo_name = "Webpage-source-code"
     branch_name = "main"
     base_raw_url = f"https://raw.githubusercontent.com/{github_username}/{repo_name}/refs/heads/{branch_name}/{row_link_folder}"
     
-    # Row_Link ফোল্ডার তৈরি করা (যদি না থাকে)
     if not os.path.exists(row_link_folder):
         os.makedirs(row_link_folder)
         
@@ -86,7 +85,6 @@ async def scrape_webpage():
                 m_logo = match['logo']
                 print(f"🟡 Processing: {m_title}")
                 
-                # ফাইলের নামে কোনো স্পেস না রেখে সম্পূর্ণভাবে আন্ডারস্কোর (_) ব্যবহার করা এবং এক্সটেনশন .m3u8 করা
                 safe_title_slug = re.sub(r'[^a-zA-Z0-9]', '_', m_title)
                 safe_title_slug = re.sub(r'_+', '_', safe_title_slug).strip('_')
                 match_file_name = f"match_{index + 1}_{safe_title_slug}.m3u8"
@@ -111,7 +109,8 @@ async def scrape_webpage():
                 match_page = await match_context.new_page()
                 
                 captured_links = []
-                match_page.on("request", lambda req: captured_links.append(req.url) if ".m3u8" in req.url else None)
+                # মাস্টার লিংক এড়িয়ে সরাসরি ২৪০পি (240p.m3u8) বা নির্দিষ্ট রেজোলিউশন লিংক ক্যাপচার করার লজিক
+                match_page.on("request", lambda req: captured_links.append(req.url) if "240p.m3u8" in req.url else None)
                 
                 try:
                     await match_page.goto(m_url, wait_until="domcontentloaded", timeout=30000)
@@ -119,21 +118,25 @@ async def scrape_webpage():
                 except Exception as e:
                     print(f"🟡 Match page error: {str(e)}")
                 
-                base_stream_link = next((l for l in captured_links if "hls" in l or "p.m3u8" in l), captured_links[0] if captured_links else None)
+                # যদি সরাসরি 240p না পায়, তবে অন্য রেজোলিউশন (যেমন 360p) খুঁজতে পারে
+                if not captured_links:
+                    match_page.on("request", lambda req: captured_links.append(req.url) if "360p.m3u8" in req.url else None)
+                    await asyncio.sleep(3)
+
+                target_stream_link = next((l for l in captured_links if "240p.m3u8" in l or "360p.m3u8" in l), captured_links[0] if captured_links else None)
                 
                 sub_file_content = ["#EXTM3U"]
                 
-                if base_stream_link:
-                    print(f"🟢 Captured Base Stream Link for: {m_title}")
+                if target_stream_link:
+                    print(f"🟢 Captured Valid Token Stream Link for: {m_title}")
                     
                     sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
                     sub_file_content.append("#EXT-X-VERSION:3")
                     
-                    clean_base_link = re.sub(r'(\d+p)?\.m3u8', '', base_stream_link)
-                    if not clean_base_link.endswith('/'):
-                        clean_base_link += '/'
-                    query_params = base_stream_link.split('?')[1] if '?' in base_stream_link else ''
-                    query_str = f"?{query_params}" if query_params else ""
+                    # টোকেন ও কুয়েরি স্ট্রিং অক্ষুণ্ণ রেখে শুধু রেজোলিউশন নাম (240p/360p) পরিবর্তন করে সব রেজোলিউশন তৈরি করা
+                    base_link_cleaned = target_stream_link
+                    for res_name in ["240p", "360p", "480p", "540p", "720p", "1080p"]:
+                        base_link_cleaned = base_link_cleaned.replace(f"{res_name}.m3u8", "REPLACE_RES.m3u8")
                     
                     resolutions = [
                         {"res": "240p", "bandwidth": "446936", "size": "426x240", "codecs": "avc1.42e015,mp4a.40.2"},
@@ -150,22 +153,22 @@ async def scrape_webpage():
                         sz = item["size"]
                         cd = item["codecs"]
                         
-                        link_with_res = f"{clean_base_link}{r}.m3u8{query_str}"
+                        link_with_res = base_link_cleaned.replace("REPLACE_RES", r)
                         sub_file_content.append(f'#EXT-X-STREAM-INF:BANDWIDTH={bw},AVERAGE-BANDWIDTH={bw},CODECS="{cd}",PROGRAM-ID=1,RESOLUTION={sz},FRAME-RATE=25.000')
                         sub_file_content.append(link_with_res)
                     
-                    status_messages.append(f"🟢 Success (Multi-Res): {m_title}")
+                    status_messages.append(f"🟢 Success (Token-Preserved Multi-Res): {m_title}")
                 else:
                     print(f"🟡 Fallback used for: {m_title}")
                     sub_file_content.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title} (Fallback)')
                     sub_file_content.append(m_url)
                     status_messages.append(f"🟡 Fallback Used: {m_title}")
                 
-                # Row_Link ফোল্ডারের ভেতরে .m3u8 ফরম্যাটে ফাইল সেভ করা
+                # Row_Link ফোল্ডারের ভেতরে ফাইল সেভ করা
                 with open(match_file_path, "w", encoding="utf-8") as sf:
                     sf.write("\n".join(sub_file_content))
                 
-                # মূল playlist.m3u ফাইলে সম্পূর্ণ GitHub Raw URL (.m3u8 সহ) যুক্ত করা
+                # মূল playlist.m3u ফাইলে সম্পূর্ণ GitHub Raw URL যুক্ত করা
                 full_raw_file_url = f"{base_raw_url}/{match_file_name}"
                 main_m3u_output.append(f'#EXTINF:-1 tvg-logo="{m_logo}" group-title="FanCode",{m_title}')
                 main_m3u_output.append(full_raw_file_url)
@@ -204,7 +207,7 @@ async def scrape_webpage():
         with open(index_file, "w", encoding="utf-8") as hf:
             hf.write(html_content)
             
-        print("🟢 Process completed! .m3u8 format applied successfully to all files and raw links.")
+        print("🟢 Process completed! Token-preserved resolution replacement applied successfully.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
