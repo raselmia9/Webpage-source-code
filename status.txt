@@ -1,3 +1,4 @@
 🟢 Fresh Device Profile Loaded Successfully
-🔴 Status: No Matches Live At The Moment
+🟢 Status: Live Matches Are Currently Active. Parsing match details...
+🟢 Added general live stream entry to M3U.
 🟢 Successfully generated and saved playlist.m3u
