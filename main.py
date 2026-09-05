@@ -82,62 +82,59 @@ async def scrape_webpage():
         m3u_lines = ["#EXTM3U"]
         
         if "LIVE" in page_text:
-            success_msg = "🟢 Status: Live Matches Are Active. Extracting card details..."
+            success_msg = "🟢 Status: Live Matches Are Active. Extracting precise match links and details..."
             print(success_msg)
             status_messages.append(success_msg)
             
-            # ফ্যানকোডের কার্ডগুলোর DOM থেকে সরাসরি টাইটেল, লোগো এবং লিংক এক্সট্রাক্ট করা
+            # ফ্যানকোডের কার্ডগুলোর DOM থেকে সরাসরি সঠিক ম্যাচ লিংক, লোগো এবং টাইটেল এক্সট্রাক্ট করা
             extracted_cards = await page.evaluate("""() => {
                 let cardsList = [];
-                // ফ্যানকোডের লাইভ ইভেন্ট কার্ডগুলো সাধারণত যে কন্টেইনার বা লিঙ্ক ট্যাগে থাকে
-                let elements = document.querySelectorAll('a[href*="/match/"], div');
+                let matchLinks = document.querySelectorAll('a[href*="/match/"]');
                 
-                elements.forEach(el => {
-                    let text = el.innerText ? el.innerText.trim() : "";
-                    // স্ক্রিনশটের মতো কার্ডগুলোতে টুর্নামেন্ট নাম এবং লাইভ ট্যাগ থাকে
-                    if (text.includes("LIVE") && text.length > 10 && text.length < 300) {
-                        let img = el.querySelector('img');
+                matchLinks.forEach(link => {
+                    let href = link.href ? link.href : "";
+                    let text = link.innerText ? link.innerText.trim() : "";
+                    
+                    # জাংক টেক্সট ফিল্টার করে আসল ম্যাচ লিঙ্কগুলো নেওয়া
+                    if (href && text && !text.includes("Live Now") && text.length > 5) {
+                        let img = link.querySelector('img');
                         let logo = img ? img.src : "https://images.fancode.com/icons/fancode-logo.png";
                         
-                        if (!cardsList.some(c => c.text === text)) {
-                            cardsList.push({ text: text, logo: logo });
+                        # ডুপ্লিকেট রোধ করা
+                        if (!cardsList.some(c => c.href === href)) {
+                            let lines = text.split('\\n').map(l => l.trim()).filter(l => l && l !== "LIVE");
+                            let mainTitle = lines.length > 0 ? lines[0] : "FanCode Live Match";
+                            if (lines.length > 1 && (lines[1].includes("vs") || lines[1].includes("v"))) {
+                                mainTitle = lines[0] + " - " + lines[1];
+                            }
+                            cardsList.push({ title: mainTitle, href: href, logo: logo, fullText: text });
                         }
                     }
                 });
                 return cardsList;
             }""")
             
-            # যদি সরাসরি DOM থেকে কার্ড পাওয়া যায়, সেগুলোকে প্রসেস করা
+            # যদি সঠিক কার্ড ও লিঙ্ক পাওয়া যায়
             if extracted_cards:
                 for card in extracted_cards:
-                    # কার্ডের টেক্সট থেকে প্রথম লাইন বা টুর্নামেন্ট নাম আলাদা করা
-                    lines_in_card = [l.strip() for l in card['text'].split('\n') if l.strip() and l.strip() != "LIVE"]
-                    match_title = " vs ".join(lines_in_card[:3]) if lines_in_card else "FanCode Live Match"
+                    match_title = card['title']
+                    match_url = card['href'] # একদম সঠিক ওয়াচ পেজের লিংক
                     
                     # ক্যাটাগরি নির্ধারণ
                     group_title = "Cricket"
-                    card_lower = card['text'].lower()
+                    card_lower = card['fullText'].lower()
                     if "supercup" in card_lower or "f3" in card_lower or "race" in card_lower or "motorsport" in card_lower:
                         group_title = "Motorsports"
                     elif "t20" in card_lower or "cricket" in card_lower:
                         group_title = "Cricket"
                     
-                    # M3U ফরম্যাট যোগ করা
+                    # M3U ফরম্যাটে সঠিক লিংকসহ যোগ করা
                     m3u_lines.append(f'#EXTINF:-1 tvg-name="{match_title}" tvg-logo="{card["logo"]}" group-title="{group_title}",{match_title}')
-                    m3u_lines.append(target_url) # স্ট্রিম বা পেজ লিংক প্লেসহোল্ডার
+                    m3u_lines.append(match_url)
                     
-                    status_messages.append(f"🟢 Added to M3U: {match_title} [{group_title}]")
+                    status_messages.append(f"🟢 Added valid match: {match_title} [{group_title}]")
             else:
-                # ফলব্যাক মেথড: টেক্সট লাইন স্ক্যান করে তৈরি করা
-                lines = page_text.split('\n')
-                for line in lines:
-                    line_str = line.strip()
-                    line_lower = line_str.lower()
-                    if ("league" in line_lower or "supercup" in line_lower or "vs" in line_lower) and len(line_str) > 8:
-                        group_title = "Motorsports" if "supercup" in line_lower else "Cricket"
-                        m3u_lines.append(f'#EXTINF:-1 tvg-name="{line_str}" tvg-logo="https://images.fancode.com/icons/fancode-logo.png" group-title="{group_title}",{line_str}')
-                        m3u_lines.append(target_url)
-                        status_messages.append(f"🟢 Added via fallback: {line_str}")
+                status_messages.append("🟡 No valid match cards found with direct match links.")
         else:
             no_match_msg = "🔴 Status: No Matches Live At The Moment"
             print(no_match_msg)
