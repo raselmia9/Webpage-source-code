@@ -9,7 +9,6 @@ async def scrape_webpage():
     
     status_messages = []
 
-    # ডিভাইস রোটেশন ও ট্রায়াল বাইপাসের জন্য র‍্যান্ডম ডিভাইস প্রোফাইল
     mobile_devices = [
         {
             "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
@@ -49,7 +48,6 @@ async def scrape_webpage():
             }
         )
         
-        # বটের আলামত লুকানোর জন্য
         await context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
@@ -62,7 +60,6 @@ async def scrape_webpage():
         print(msg1)
         status_messages.append(msg1)
         
-        # পেজে যাওয়া
         try:
             await page.goto(target_url, wait_until="networkidle", timeout=30000)
         except Exception as e:
@@ -70,13 +67,11 @@ async def scrape_webpage():
             print(msg_err)
             status_messages.append(msg_err)
         
-        # রিয়্যাক্ট কম্পোনেন্ট রেন্ডার হওয়ার জন্য সময় ও স্ক্রোলিং
         print("🟡 Waiting for SPA components and live cards to render...")
         await asyncio.sleep(5)
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 3);")
         await asyncio.sleep(2)
         
-        # পেজের সম্পূর্ণ টেক্সট সংগ্রহ করে লাইভ যাচাই করা
         page_text = await page.evaluate("document.body.innerText")
         
         m3u_lines = ["#EXTM3U"]
@@ -86,7 +81,6 @@ async def scrape_webpage():
             print(success_msg)
             status_messages.append(success_msg)
             
-            # ফ্যানকোডের কার্ডগুলোর DOM থেকে সরাসরি সঠিক ম্যাচ লিংক, লোগো এবং টাইটেল এক্সট্রাক্ট করা
             extracted_cards = await page.evaluate("""() => {
                 let cardsList = [];
                 let matchLinks = document.querySelectorAll('a[href*="/match/"]');
@@ -95,12 +89,12 @@ async def scrape_webpage():
                     let href = link.href ? link.href : "";
                     let text = link.innerText ? link.innerText.trim() : "";
                     
-                    # জাংক টেক্সট ফিল্টার করে আসল ম্যাচ লিঙ্কগুলো নেওয়া
+                    // Filter junk text and get actual match links
                     if (href && text && !text.includes("Live Now") && text.length > 5) {
                         let img = link.querySelector('img');
                         let logo = img ? img.src : "https://images.fancode.com/icons/fancode-logo.png";
                         
-                        # ডুপ্লিকেট রোধ করা
+                        // Prevent duplicates
                         if (!cardsList.some(c => c.href === href)) {
                             let lines = text.split('\\n').map(l => l.trim()).filter(l => l && l !== "LIVE");
                             let mainTitle = lines.length > 0 ? lines[0] : "FanCode Live Match";
@@ -114,13 +108,11 @@ async def scrape_webpage():
                 return cardsList;
             }""")
             
-            # যদি সঠিক কার্ড ও লিঙ্ক পাওয়া যায়
             if extracted_cards:
                 for card in extracted_cards:
                     match_title = card['title']
-                    match_url = card['href'] # একদম সঠিক ওয়াচ পেজের লিংক
+                    match_url = card['href']
                     
-                    # ক্যাটাগরি নির্ধারণ
                     group_title = "Cricket"
                     card_lower = card['fullText'].lower()
                     if "supercup" in card_lower or "f3" in card_lower or "race" in card_lower or "motorsport" in card_lower:
@@ -128,7 +120,6 @@ async def scrape_webpage():
                     elif "t20" in card_lower or "cricket" in card_lower:
                         group_title = "Cricket"
                     
-                    # M3U ফরম্যাটে সঠিক লিংকসহ যোগ করা
                     m3u_lines.append(f'#EXTINF:-1 tvg-name="{match_title}" tvg-logo="{card["logo"]}" group-title="{group_title}",{match_title}')
                     m3u_lines.append(match_url)
                     
@@ -140,7 +131,6 @@ async def scrape_webpage():
             print(no_match_msg)
             status_messages.append(no_match_msg)
 
-        # M3U ফাইল সেভ করা
         with open(playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_lines))
             
