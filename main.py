@@ -10,7 +10,7 @@ async def scrape_webpage():
     
     status_messages = []
 
-    # প্রতিবার একদম নতুন ডিভাইসের পরিচয় দেওয়ার জন্য বিভিন্ন রেন্ডম মোবাইল ও ট্যাবলেটের প্রফাইল
+    # ডিভাইস প্রফাইলসমূহ
     device_profiles = [
         {
             "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
@@ -26,18 +26,29 @@ async def scrape_webpage():
             "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1",
             "viewport": {"width": 390, "height": 844},
             "device_scale_factor": 3
-        },
-        {
-            "user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-            "viewport": {"width": 412, "height": 892},
-            "device_scale_factor": 2.625
         }
     ]
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        # আসল Chrome ব্যবহার করে বট ডিটেকশন ও কোডেক ইস্যু বাইপাস করা
+        try:
+            browser = await p.chromium.launch(
+                headless=True,
+                channel="chrome",  # সিস্টেমের গুগল ক্রোম ব্যবহার করবে
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox"
+                ]
+            )
+        except Exception:
+            # ক্রোম না থাকলে ডিফল্ট ক্রোমিয়াম
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled"]
+            )
         
-        # ১. প্রথমে লাইভ পেজ থেকে ম্যাচের তালিকা সংগ্রহের জন্য একটি ডিভাইস কনটেক্সট
+        # ১. লাইভ পেজ থেকে ম্যাচের লিংক সংগ্রহ
         initial_device = random.choice(device_profiles)
         context = await browser.new_context(
             viewport=initial_device["viewport"],
@@ -93,16 +104,15 @@ async def scrape_webpage():
             print("🔴 No active matches found.")
             status_messages.append("🔴 No active matches found.")
         else:
-            print(f"🟢 Found {len(matches_to_process)} match(es). Processing with unique device identities...")
+            print(f"🟢 Found {len(matches_to_process)} match(es). Processing...")
             
-            # ২. প্রতিটি ম্যাচের জন্য আলাদা ও নতুন ডিভাইস প্রোফাইল ব্যবহার করে লিংক ক্যাপচার
+            # ২. প্রতিটি ম্যাচের প্লেব্যাক ইন্টারসেপশন
             for match in matches_to_process:
                 match_title = match['title']
                 match_url = match['href']
                 
                 print(f"🟡 Processing match: {match_title}")
                 
-                # সম্পূর্ণ নতুন ডিভাইস সিলেক্ট করা হচ্ছে
                 unique_device = random.choice(device_profiles)
                 m_context = await browser.new_context(
                     viewport=unique_device["viewport"],
@@ -118,50 +128,58 @@ async def scrape_webpage():
                 await m_context.add_init_script("Object.defineProperty(navigator, 'webdriver', { get: () => undefined });")
                 m_page = await m_context.new_page()
                 
-                captured_requests = []
+                captured_m3u8 = []
                 
-                # নেটওয়ার্কের সমস্ত রিকোয়েস্ট বা ইউআরএল ধরে লিস্টে জমা করা
-                async def intercept_requests(request):
-                    captured_requests.append(request.url)
+                # রিকোয়েস্ট URL পর্যবেক্ষণ
+                async def on_request(request):
+                    if ".m3u8" in request.url:
+                        captured_m3u8.append(request.url)
 
-                m_page.on("request", intercept_requests)
+                # ব্যাকএন্ড এপিআই রেসপন্স (JSON Body) পর্যবেক্ষণ
+                async def on_response(response):
+                    try:
+                        url = response.url
+                        # প্লেব্যাক এপিআই রিকোয়েস্ট থেকে m3u8 খুঁজে বের করা
+                        if "playback" in url or "stream" in url or "graphql" in url or ".m3u8" in url:
+                            ct = response.headers.get("content-type", "")
+                            if "json" in ct or "text" in ct:
+                                text = await response.text()
+                                if ".m3u8" in text:
+                                    matches = re.findall(r'https?://[^\s<>"]+?\.m3u8[^\s<>"]*', text)
+                                    for m in matches:
+                                        # এস্কেপ ক্যারেক্টার পরিষ্কার করা
+                                        clean_url = m.replace("\\/", "/").replace("\\u0026", "&")
+                                        captured_m3u8.append(clean_url)
+                    except:
+                        pass
+
+                m_page.on("request", on_request)
+                m_page.on("response", on_response)
                 
                 try:
-                    # ম্যাচের ওয়াচ পেজে প্রবেশ করা
                     await m_page.goto(match_url, wait_until="domcontentloaded", timeout=35000)
                     
-                    # কোনো ক্লিক ছাড়াই ভিডিও অটোমেটিক লোড ও স্ট্রিম ট্রিগার হওয়ার জন্য ৫ থেকে ৭ সেকেন্ড অপেক্ষা করা
-                    print("🟡 Waiting for video player to auto-load and trigger stream...")
-                    await asyncio.sleep(7)
-                    
-                    # পেজটি একটু স্ক্রোল করে প্লেয়ার রেন্ডার নিশ্চিত করা
-                    await m_page.evaluate("window.scrollTo(0, 300);")
-                    await asyncio.sleep(3)
+                    print("🟡 Waiting 10s for player and stream API response...")
+                    await asyncio.sleep(10) # ভিডিও এবং প্লেব্যাক এপিআই ট্রিগার হওয়ার সময়
                     
                 except Exception as e:
-                    print(f"🟡 Error during navigation: {str(e)}")
+                    print(f"🟡 Error during page load: {str(e)}")
                 
-                # ৩. ক্যাচ করা সমস্ত রিকোয়েস্ট থেকে ফিল্টার করে m3u8 লিংক বের করা
-                valid_m3u8 = None
-                if captured_requests:
-                    # ডুপ্লিকেট রিমুভ করা
-                    unique_urls = list(set(captured_requests))
-                    
-                    # ফিল্টারিং: যে লিংকগুলোতে .m3u8 রয়েছে
-                    m3u8_candidates = [url for url in unique_urls if ".m3u8" in url]
-                    
-                    if m3u8_candidates:
-                        # অগ্রাধিকার দেওয়া হবে যেখানে মাস্টার বা hls কিউয়ার্ড আছে
-                        valid_m3u8 = next((u for u in m3u8_candidates if "master" in u or "hls" in u or "pdlive" in u), m3u8_candidates[0])
+                # ফিল্টারিং
+                valid_stream = None
+                if captured_m3u8:
+                    unique_links = list(set(captured_m3u8))
+                    print(f"🔍 Raw captured links count: {len(unique_links)}")
+                    # মাস্টার স্ট্রিম ফাইল অগ্রাধিকার পাবে
+                    valid_stream = next((u for u in unique_links if "master" in u or "hls" in u or "pdlive" in u), unique_links[0])
                 
-                # ৪. ফলাফল আউটপুট বা প্লেলিস্টে যোগ করা
-                if valid_m3u8:
-                    print(f"🟢 SUCCESS - M3U8 Master Link Found: {valid_m3u8}")
+                if valid_stream:
+                    print(f"🟢 SUCCESS - Master Link: {valid_stream}")
                     m3u_output.append(f'#EXTINF:-1 tvg-name="{match_title}" group-title="FanCode Live",{match_title}')
-                    m3u_output.append(valid_m3u8)
+                    m3u_output.append(valid_stream)
                     status_messages.append(f"🟢 Captured: {match_title}")
                 else:
-                    print(f"🟡 M3U8 link not found, falling back to watch URL for: {match_title}")
+                    print(f"🔴 Stream capture failed for: {match_title}")
                     m3u_output.append(f'#EXTINF:-1 tvg-name="{match_title}" group-title="FanCode Live",{match_title}')
                     m3u_output.append(match_url)
                     status_messages.append(f"🟡 Fallback used: {match_title}")
@@ -170,14 +188,13 @@ async def scrape_webpage():
 
         await browser.close()
         
-        # ফাইল সেভ করা
         with open(playlist_file, "w", encoding="utf-8") as f:
             f.write("\n".join(m3u_output))
             
         with open(status_file, "w", encoding="utf-8") as sf:
             sf.write("\n".join(status_messages))
             
-        print("🟢 Process finished successfully.")
+        print("🟢 Completed.")
 
 if __name__ == "__main__":
     asyncio.run(scrape_webpage())
